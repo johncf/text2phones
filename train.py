@@ -2,7 +2,6 @@
 
 import tensorflow as tf
 import numpy as np
-from data import Reader
+import data
 
-reader = Reader('.', batch_size=4)
-print(reader.next_batch())
+reader = data.Reader('.')
