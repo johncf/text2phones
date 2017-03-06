@@ -18,13 +18,13 @@ class Reader:
         self.dtype = dtype
 
     def _input_onehot(self, input_):
-        input_ = input_.replace(' ', '_').lower()
+        input_ = ['<s>'] + list(input_.replace(' ', '_').lower()) + ['</s>']
         onehot = np.zeros((self.imaxtime, len(self.isymbols)))
         onehot[np.arange(len(input_)), np.array([self.isymbols[c] for c in input_])] = 1
         return onehot, len(input_)
 
     def _output_onehot(self, output_):
-        output_ = output_.split()
+        output_ = ['<s>'] + output_.split() + ['</s>']
         onehot = np.zeros((self.omaxtime, len(self.osymbols)))
         onehot[np.arange(len(output_)), np.array([self.osymbols[s] for s in output_])] = 1
         return onehot, len(output_)
