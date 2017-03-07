@@ -16,6 +16,14 @@ class Reader:
         self.omax_len = omax_len
         self.batch_size = batch_size
 
+    @property
+    def input_size(self):
+        return len(self.isymbols)
+
+    @property
+    def output_size(self):
+        return len(self.osymbols)
+
     def _input_ids(self, input_):
         input_ = ['<s>'] + list(input_.replace(' ', '_').lower()) + ['</s>']
         if len(input_) > self.imax_len:
