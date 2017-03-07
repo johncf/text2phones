@@ -8,52 +8,46 @@ class Model():
         """
         @param kwargs: The following keys are recognized:
             'batch_size': batch size (default: 1),
-            'input_max_time': maximum input sequence length (optional?),
+            'input_length': maximum length of input sequence (optional?),
             'input_size': dimension of a single input in an input sequence,
-            'input_rnn_size': number of units in the LSTM cell (default: 32),
-            'output_rnn_size': number of units in the LSTM cell (default: 32),
+            'enc_rnn_size': number of units in the LSTM cell (default: 32),
+            'dec_rnn_size': number of units in the LSTM cell (default: 32),
             'output_size': dimension of a single output in an output sequence,
-            'output_max_time': maximum output sequence length (only for training?)
+            'output_length': maximum length of output sequence (only for training?)
         """
 
         batch_size = kwargs.get('batch_size', 1)
-        input_max_time = kwargs.get('input_max_time', 1)
-        input_rnn_size = kwargs.get('input_rnn_size', 32)
-        output_rnn_size = kwargs.get('output_rnn_size', 32)
+        input_length = kwargs.get('input_length', 1)
+        enc_rnn_size = kwargs.get('enc_rnn_size', 32)
+        dec_rnn_size = kwargs.get('dec_rnn_size', 32)
 
         self.input_data = tf.placeholder(tf.int32, [batch_size,
-                                                    input_max_time,
+                                                    input_length,
                                                     kwargs['input_size']])
-        self.seq_length = tf.placeholder(tf.int32, [batch_size])
+        # embed input_data into a one-hot representation
+        self.inputs = tf.one_hot(self.input_data, self.input_size, dtype=dtype)
+        self.sequence_length = tf.placeholder(tf.int32, [batch_size]) # actual sequence lengths
 
-        fw_cell = rnn.BasicLSTMCell(input_rnn_size, state_is_tuple=True)
-        bw_cell = rnn.BasicLSTMCell(input_rnn_size, state_is_tuple=True)
+        fw_cell = rnn.BasicLSTMCell(enc_rnn_size, state_is_tuple=True)
+        bw_cell = rnn.BasicLSTMCell(enc_rnn_size, state_is_tuple=True)
 
-        enc_out, _ = tf.nn.bidirectional_dynamic_rnn(fw_cell, bw_cell, self.input_data,
-                                                     sequence_length=self.seq_length)
+        enc_out, _ = tf.nn.bidirectional_dynamic_rnn(fw_cell, bw_cell, self.inputs,
+                                                     sequence_length=self.sequence_length)
 
-        # TODO attention to encoder from decoder
-        dec_cell = rnn.BasicLSTMCell(output_rnn_size, state_is_tuple=True)
-        dec_cell = rnn.AttentionCellWrapper(dec_cell, attn_length=input_max_time,
-                                            attn_size=2*input_rnn_size, state_is_tuple=True)
+        dec_cell = rnn.BasicLSTMCell(dec_rnn_size, state_is_tuple=True)
+        dec_cell = rnn.AttentionCellWrapper(dec_cell, attn_length=input_length,
+                                            attn_size=2*enc_rnn_size, state_is_tuple=True)
 
-        def initialize_fn():
-            # TODO (Note: finished: a tensor of bools)
-            return (finished, next_inputs)
-        def sample_fn(time, outputs, state):
-            # TODO
-            return sample_ids
-        def next_inputs_fn(time, outputs, state, sample_ids):
-            # TODO
-            return (finished, next_inputs, next_state)
-        dec_helper = seq2seq.CustomHelper(initialize_fn, sample_fn, next_inputs_fn)
+        # TODO return dummy values from these functions and try Model()
+        def embedding_fn(ids):
+            return tf.one_hot(ids, self.output_size, dtype=dtype)
+        dec_helper = seq2seq.GreedyEmbeddingHelper(embedding_fn, start_tokens=tf.zeros([batch_size], dtype=int32), end_token=1)
 
         cell_init, attn_init, _ = dec_cell.zero_state(batch_size, dtype)
-        attn_state_init = tf.concat(enc_out, 2) # batch_size x input_max_time x 2*input_rnn_size
+        attn_state_init = tf.concat(enc_out, 2) # batch_size x input_length x 2*enc_rnn_size
         dec = seq2seq.BasicDecoder(dec_cell, dec_helper, (cell_init, attn_init, attn_state_init))
 
-        dec_out, _ = seq2seq.dynamic_decode(dec_cell)
-        self.decoder_out = dec_out
+        self.decoder_out, self.final_state = seq2seq.dynamic_decode(dec_cell)
 
 
 # Also See
