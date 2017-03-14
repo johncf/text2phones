@@ -5,6 +5,7 @@ from itertools import islice
 class Reader:
     def __init__(self, root_path, data='data',
             isymbols='isymbols', osymbols='osymbols',
+            sos='<sos>', eos='<eos>',
             imax_len=64, omax_len=64,
             batch_size=100):
         self.data_handle = open(os.path.join(root_path, data))
@@ -25,7 +26,7 @@ class Reader:
         return len(self.osymbols)
 
     def _input_ids(self, input_):
-        input_ = ['<s>'] + list(input_.replace(' ', '_').lower()) + ['</s>']
+        input_ = ['<sos>'] + list(input_.replace(' ', '_').lower()) + ['<eos>']
         if len(input_) > self.imax_len:
             raise Exception("input length exceeded imax_len")
         ids = np.array([self.isymbols[tok] for tok in input_], dtype=np.int32)
@@ -33,7 +34,7 @@ class Reader:
         return ids, len(input_)
 
     def _output_ids(self, output_):
-        output_ = ['<s>'] + output_.split() + ['</s>']
+        output_ = ['<sos>'] + output_.split() + ['<eos>']
         if len(output_) > self.omax_len:
             raise Exception("output length exceeded omax_len")
         ids = np.array([self.osymbols[tok] for tok in output_], dtype=np.int32)
