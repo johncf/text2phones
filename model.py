@@ -1,16 +1,18 @@
 import tensorflow as tf
 from tensorflow.contrib import rnn, seq2seq
+import attn
 
 import numpy as np
 
 class Model():
     def __init__(self, dtype=tf.float32, **kwargs):
         """
-        @param kwargs: The following keys are recognized:
-            'input_size': dimension of a single input in an input sequence
-            'output_size': dimension of a single output in an output sequence
-            'enc_rnn_size': number of units in the LSTM cell (default: 32)
-            'dec_rnn_size': number of units in the LSTM cell (default: 48)
+        Args:
+          The following kwargs are recognized:
+            input_size: dimension of a single input in an input sequence
+            output_size: dimension of a single output in an output sequence
+            enc_rnn_size: number of units in the LSTM cell (default: 32)
+            dec_rnn_size: number of units in the LSTM cell (default: 48)
         """
         self._input_size = kwargs['input_size']
         self._output_size = kwargs['output_size']
@@ -20,9 +22,10 @@ class Model():
 
     def train(self, batch_size, input_length, output_length):
         """
-            @param batch_size: size of training batch
-            @param input_length: maximum length of input sequence
-            @param output_length: maximum length of output sequence
+        Args:
+            batch_size: size of training batch
+            input_length: maximum length of input sequence
+            output_length: maximum length of output sequence
         """
         self.input_data = tf.placeholder(tf.int32, [batch_size, input_length])
         self.sequence_length = tf.placeholder(tf.int32, [batch_size]) # actual sequence lengths
@@ -30,31 +33,39 @@ class Model():
         # embed input_data into a one-hot representation
         inputs = tf.one_hot(self.input_data, self._input_size, dtype=self._dtype)
 
-        fw_cell = rnn.BasicLSTMCell(self._enc_rnn_size, state_is_tuple=True)
-        bw_cell = rnn.BasicLSTMCell(self._enc_rnn_size, state_is_tuple=True)
-        fw_cell_zero = fw_cell.zero_state(batch_size, self._dtype)
-        bw_cell_zero = bw_cell.zero_state(batch_size, self._dtype)
+        with tf.name_scope('bidir-encoder'):
+            fw_cell = rnn.BasicLSTMCell(self._enc_rnn_size, state_is_tuple=True)
+            bw_cell = rnn.BasicLSTMCell(self._enc_rnn_size, state_is_tuple=True)
+            fw_cell_zero = fw_cell.zero_state(batch_size, self._dtype)
+            bw_cell_zero = bw_cell.zero_state(batch_size, self._dtype)
 
-        enc_out, _ = tf.nn.bidirectional_dynamic_rnn(fw_cell, bw_cell, inputs,
-                                                     sequence_length=self.sequence_length,
-                                                     initial_state_fw=fw_cell_zero,
-                                                     initial_state_bw=bw_cell_zero)
+            enc_out, _ = tf.nn.bidirectional_dynamic_rnn(fw_cell, bw_cell, inputs,
+                                                         sequence_length=self.sequence_length,
+                                                         initial_state_fw=fw_cell_zero,
+                                                         initial_state_bw=bw_cell_zero)
 
-        dec_cell = rnn.BasicLSTMCell(self._dec_rnn_size, state_is_tuple=True)
-        dec_cell = rnn.AttentionCellWrapper(dec_cell, attn_length=input_length,
-                                            attn_size=2*self._enc_rnn_size, state_is_tuple=True)
+        with tf.name_scope('attn-decoder'):
+            dec_cell = rnn.BasicLSTMCell(self._dec_rnn_size, state_is_tuple=True)
+            dec_cell = attn.AttentionCellWrapper(dec_cell, attn_length=input_length,
+                                                 attn_size=2*self._enc_rnn_size, state_is_tuple=True)
 
-        def embedding_fn(ids):
-            return tf.one_hot(ids, self._output_size, dtype=self._dtype)
-        dec_helper = seq2seq.GreedyEmbeddingHelper(embedding_fn,
-                start_tokens=tf.zeros([batch_size], dtype=tf.int32), end_token=1)
+            def embedding_fn(ids):
+                return tf.one_hot(ids, self._output_size, dtype=self._dtype)
 
-        cell_init, attn_init, _ = dec_cell.zero_state(batch_size, self._dtype)
-        attn_state_init = tf.concat(enc_out, 2) # batch_size x input_length x 2*_enc_rnn_size
-        attn_state_init = tf.reshape(attn_state_init, [batch_size, input_length * 2*self._enc_rnn_size])
-        dec = seq2seq.BasicDecoder(dec_cell, dec_helper, (cell_init, attn_init, attn_state_init))
+            dec_helper = seq2seq.GreedyEmbeddingHelper(embedding_fn,
+                    start_tokens=tf.zeros([batch_size], dtype=tf.int32), end_token=1)
 
-        self.decoder_out, self.final_state = seq2seq.dynamic_decode(dec)
+            cell_init, attn_init, _ = dec_cell.zero_state(batch_size, self._dtype)
+            attn_state_init = tf.concat(enc_out, 2) # batch_size x input_length x 2*_enc_rnn_size
+            attn_state_init = tf.reshape(attn_state_init, [batch_size, input_length * 2*self._enc_rnn_size])
+            dec = seq2seq.BasicDecoder(dec_cell, dec_helper, (cell_init, attn_init, attn_state_init))
+
+            self.dec_out, _ = seq2seq.dynamic_decode(dec, output_time_major=True, maximum_iterations=output_length)
+
+        #with tf.name_scope('')
+
+        #with tf.name_scope('loss'):
+        #    a
 
 # Also See
 #   https://groups.google.com/a/tensorflow.org/forum/#!topic/discuss/dw3Y2lnMAJc
