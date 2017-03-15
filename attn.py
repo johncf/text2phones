@@ -1,33 +1,54 @@
 import tensorflow as tf
 from tensorflow.contrib import rnn
+from tensorflow.python.util import nest
 
 class AttentionalInterface:
-    def __init__(self, inputs, state_size, layers=[]):
-        """Create an attentional interface which can be used to compute
-        attentional context tensor given the hidden state.
-        Args:
-          inputs: input tensor of size [batch_size x sequence_length x input_size]
-                  on which attention is implemented.
-          state_size:
+    """Abstract object representing an attentional interface, which can be used
+    to compute context tensor from a query.
+    """
+    def __call__(self, query, scope=None):
         """
+        Args:
+          query: tensor of shape [B, ...] using which context is computed.
+              (possibly the current state of the decoder)
+        """
+        raise NotImplementedError("Abstract method")
 
-# Copy-pasted from tensorflow repository: /contrib/rnn/python/ops/rnn_cell.py
+    @property
+    def output_size(self):
+        raise NotImplementedError("Abstract property")
+
+# see: https://theneuralperspective.com/2016/11/20/recurrent-neural-network-rnn-part-4
+class BasicAttentionalInterface(AttentionalInterface):
+    """
+    Args:
+      values: tensor of shape [B, T, ...] on which attention is implemented.
+      values_length: int32 tensor of shape [B] indicating the true length of
+          the sequences.
+      layers: number of layers of the feed forward network that is used to
+          compute the context vector. By default the inputs and query are
+          directly transformed into the context vector terms using a linear
+          transformation step.
+    """
+    def __init__(self, values, values_length, layers=[]):
+        self._values = values
+        self._values_length = values_length
+        self._layers = layers
+
+    @property
+    def output_size(self):
+        return tf.shape(self._values)[2:]
+
 class AttentionCellWrapper(rnn.RNNCell):
     """Basic attention cell wrapper.
     Implementation based on https://arxiv.org/abs/1409.0473.
     """
 
-    def __init__(self, cell, attn_length, attn_size=None, attn_vec_size=None,
-                 input_size=None, reuse=None):
+    def __init__(self, cell, attn_ifx, reuse=None):
         """Create a cell with attention.
         Args:
           cell: an RNNCell, an attention is added to it.
-          attn_length: integer, the size of an attention window.
-          attn_size: integer, the size of an attention vector. Equal to
-              cell.output_size by default.
-          input_size: integer, the size of a hidden linear layer,
-              built from inputs and attention. Derived from the input tensor
-              by default.
+          attn_ifx: an AttentionalInterface object
           reuse: (optional) Python boolean describing whether to reuse variables
               in an existing scope.  If not `True`, and the existing scope already has
               the given variables, an error is raised.
@@ -37,66 +58,30 @@ class AttentionCellWrapper(rnn.RNNCell):
         """
         if not isinstance(cell, rnn.RNNCell):
             raise TypeError("The parameter cell is not RNNCell.")
-        #if nest.is_sequence(cell.state_size) and not state_is_tuple:
-        #    raise ValueError("Cell returns tuple of states, but the flag "
-        #                     "state_is_tuple is not set. State size is: %s"
-        #                     % str(cell.state_size))
-        if attn_length <= 0:
-            raise ValueError("attn_length should be greater than zero, got %s"
-                             % str(attn_length))
-        if attn_size is None:
-            attn_size = cell.output_size
-        if attn_vec_size is None:
-            attn_vec_size = attn_size
+        if not isinstance(attn_ifx, AttentionalInterface):
+            raise TypeError("The parameter attn_ifx is not AttentionalInterface.")
         self._cell = cell
-        self._attn_vec_size = attn_vec_size
-        self._input_size = input_size
-        self._attn_size = attn_size
-        self._attn_length = attn_length
+        self._attn_ifx = attn_ifx
         self._reuse = reuse
 
     @property
     def state_size(self):
-        size = (self._cell.state_size, self._attn_size,
-                self._attn_size * self._attn_length)
-        return size
+        return self._cell.state_size
 
     @property
     def output_size(self):
-        return self._attn_size
+        return self._cell.output_size
 
     def __call__(self, inputs, state, scope=None):
         """Long short-term memory cell with attention (LSTMA)."""
         with tf.variable_scope(scope or "attention_cell_wrapper", reuse=self._reuse):
-            state, attns = state
-            attn_states = tf.reshape(attn_states,
-                                     [-1, self._attn_length, self._attn_size])
-            input_size = self._input_size
-            if input_size is None:
-                input_size = inputs.get_shape().as_list()[1]
-            inputs = _linear([inputs, attns], input_size, True)
-            lstm_output, new_state = self._cell(inputs, state)
-            #if self._state_is_tuple:
-            #    new_state_cat = tf.concat(nest.flatten(new_state), 1)
-            #else:
-            #    new_state_cat = new_state
-            #new_attns, new_attn_states = self._attention(
-            #    new_state_cat, attn_states)
-            with tf.variable_scope("attn_output_projection"):
-                output = _linear([lstm_output, new_attns],
-                                 self._attn_size, True)
-            new_attn_states = tf.concat(
-                [new_attn_states, tf.expand_dims(output, 1)], 1)
-            new_attn_states = tf.reshape(
-                new_attn_states, [-1, self._attn_length * self._attn_size])
-            new_state = (new_state, new_attns, new_attn_states)
+            attn_ctx = self._attn_ifx(state)
+            inputs = tf.concat([inputs, attn_ctx], 1)
+            output, new_state = self._cell(inputs, state)
             return output, new_state
 
     def _attention(self, query, attn_states):
         conv2d = tf.nn.conv2d
-        reduce_sum = tf.reduce_sum
-        softmax = tf.nn.softmax
-        tanh = tf.tanh
 
         with tf.variable_scope("attention"):
             k = tf.get_variable(
@@ -105,17 +90,10 @@ class AttentionCellWrapper(rnn.RNNCell):
             hidden = tf.reshape(attn_states,
                                 [-1, self._attn_length, 1, self._attn_size])
             hidden_features = conv2d(hidden, k, [1, 1, 1, 1], "SAME")
-            y = _linear([query], self._attn_vec_size, True)
-            y = tf.reshape(y, [-1, 1, 1, self._attn_vec_size])
-            s = reduce_sum(v * tanh(hidden_features + y), [2, 3])
-            a = softmax(s)
-            d = reduce_sum(
-                tf.reshape(a, [-1, self._attn_length, 1, 1]) * hidden, [1, 2])
-            new_attns = tf.reshape(d, [-1, self._attn_size])
-            new_attn_states = tf.slice(attn_states, [0, 1, 0], [-1, -1, -1])
-            return new_attns, new_attn_states
+            #TODO figure out the shape of hidden_features
 
 
+# Copy-pasted from tensorflow repository: /contrib/rnn/python/ops/rnn_cell.py
 def _linear(args, output_size, bias, bias_start=0.0):
     """Linear map: sum_i(args[i] * W[i]), where W[i] is a variable.
     Args:
@@ -129,10 +107,10 @@ def _linear(args, output_size, bias, bias_start=0.0):
     Raises:
       ValueError: if some of the arguments has unspecified or wrong shape.
     """
-    #if args is None or (nest.is_sequence(args) and not args):
-    #    raise ValueError("`args` must be specified")
-    #if not nest.is_sequence(args):
-    #    args = [args]
+    if args is None or (nest.is_sequence(args) and not args):
+        raise ValueError("`args` must be specified")
+    if not nest.is_sequence(args):
+        args = [args]
 
     # Calculate the total size of arguments on dimension 1.
     total_arg_size = 0
