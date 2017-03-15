@@ -1,11 +1,22 @@
 import tensorflow as tf
-from tensorflow.contrib import rnn
+from tensorflow.contrib import rnn, layers
 from tensorflow.python.util import nest
 
 class AttentionalInterface:
     """Abstract object representing an attentional interface, which can be used
     to compute context tensor from a query.
     """
+    def __init__(self, values, values_length, reuse=None):
+        """
+        Args:
+          values: tensor of shape [B, T, ...] on which attention is implemented.
+          values_length: int32 tensor of shape [B] indicating the true length of
+              the sequences.
+        """
+        self._values = values
+        self._values_length = values_length
+        self._reuse = reuse
+
     def __call__(self, query, scope=None):
         """
         Args:
@@ -20,24 +31,35 @@ class AttentionalInterface:
 
 # see: https://theneuralperspective.com/2016/11/20/recurrent-neural-network-rnn-part-4
 class BasicAttentionalInterface(AttentionalInterface):
-    """
-    Args:
-      values: tensor of shape [B, T, ...] on which attention is implemented.
-      values_length: int32 tensor of shape [B] indicating the true length of
-          the sequences.
-      layers: number of layers of the feed forward network that is used to
-          compute the context vector. By default the inputs and query are
-          directly transformed into the context vector terms using a linear
-          transformation step.
-    """
-    def __init__(self, values, values_length, layers=[]):
-        self._values = values
-        self._values_length = values_length
+    def __init__(self, values, values_length, activation_fn=tf.tanh, layers=[], reuse=None):
+        """
+        Args:
+          values: tensor of shape [B, T, ...] on which attention is implemented.
+          values_length: int32 tensor of shape [B] indicating the true length of
+              the sequences.
+          layers: number of layers of the feed forward network that is used to
+              compute the context vector. By default the inputs and query are
+              directly transformed into the context vector terms using a linear
+              transformation step.
+          activation_fn: activation function (default: tf.tanh)
+          reuse: (optional) Python boolean describing whether to reuse variables
+              in an existing scope. If not `True`, and the existing scope
+              already has the given variables, an error is raised.
+        """
+        super(BasicAttentionalInterface, self).__init__(values, values_length, reuse=reuse)
         self._layers = layers
 
     @property
     def output_size(self):
         return tf.shape(self._values)[2:]
+
+    def __call__(self, query, scope=None):
+        with tf.variable_scope(scope, "basic_attentional_interface", reuse=self._reuse):
+            query = tf.expand_dims(query, 1) # flatten query first?
+            last_outputs = self._values + query
+            for (i, num_outputs) in enumerate(self._layers):
+                w_att = tf.get_variable("w_att" + i, shape=[num_outputs]) # FIXME shape
+                last_outputs = tf.reduce_sum(w_att * activation_fn(last_outputs), [2])
 
 class AttentionCellWrapper(rnn.RNNCell):
     """Basic attention cell wrapper.
@@ -50,8 +72,8 @@ class AttentionCellWrapper(rnn.RNNCell):
           cell: an RNNCell, an attention is added to it.
           attn_ifx: an AttentionalInterface object
           reuse: (optional) Python boolean describing whether to reuse variables
-              in an existing scope.  If not `True`, and the existing scope already has
-              the given variables, an error is raised.
+              in an existing scope.  If not `True`, and the existing scope
+              already has the given variables, an error is raised.
         Raises:
           TypeError: if cell is not an RNNCell.
           ValueError: if attn_length is zero or less.
@@ -79,18 +101,6 @@ class AttentionCellWrapper(rnn.RNNCell):
             inputs = tf.concat([inputs, attn_ctx], 1)
             output, new_state = self._cell(inputs, state)
             return output, new_state
-
-    def _attention(self, query, attn_states):
-        conv2d = tf.nn.conv2d
-
-        with tf.variable_scope("attention"):
-            k = tf.get_variable(
-                "attn_w", [1, 1, self._attn_size, self._attn_vec_size])
-            v = tf.get_variable("attn_v", [self._attn_vec_size])
-            hidden = tf.reshape(attn_states,
-                                [-1, self._attn_length, 1, self._attn_size])
-            hidden_features = conv2d(hidden, k, [1, 1, 1, 1], "SAME")
-            #TODO figure out the shape of hidden_features
 
 
 # Copy-pasted from tensorflow repository: /contrib/rnn/python/ops/rnn_cell.py
