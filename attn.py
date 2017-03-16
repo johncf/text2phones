@@ -1,6 +1,5 @@
 import tensorflow as tf
 from tensorflow.contrib import rnn, layers
-from tensorflow.python.util import nest
 
 class AttentionalInterface:
     """Abstract object representing an attentional interface, which can be used
@@ -9,7 +8,7 @@ class AttentionalInterface:
     def __init__(self, values, values_length, reuse=None):
         """
         Args:
-          values: tensor of shape [B, T, ...] on which attention is implemented.
+          values: tensor of shape [B, T, V] on which attention is implemented.
           values_length: int32 tensor of shape [B] indicating the true length of
               the sequences.
         """
@@ -20,7 +19,7 @@ class AttentionalInterface:
     def __call__(self, query, scope=None):
         """
         Args:
-          query: tensor of shape [B, ...] using which context is computed.
+          query: tensor of shape [B, Q] using which context is computed.
               (possibly the current state of the decoder)
         """
         raise NotImplementedError("Abstract method")
@@ -29,12 +28,13 @@ class AttentionalInterface:
     def output_size(self):
         raise NotImplementedError("Abstract property")
 
+
 # see: https://theneuralperspective.com/2016/11/20/recurrent-neural-network-rnn-part-4
 class BasicAttentionalInterface(AttentionalInterface):
     def __init__(self, values, values_length, activation_fn=tf.tanh, layers=[], reuse=None):
         """
         Args:
-          values: tensor of shape [B, T, ...] on which attention is implemented.
+          values: tensor of shape [B, T, V] on which attention is implemented.
           values_length: int32 tensor of shape [B] indicating the true length of
               the sequences.
           layers: number of layers of the feed forward network that is used to
@@ -55,11 +55,12 @@ class BasicAttentionalInterface(AttentionalInterface):
 
     def __call__(self, query, scope=None):
         with tf.variable_scope(scope, "basic_attentional_interface", reuse=self._reuse):
-            query = tf.expand_dims(query, 1) # flatten query first?
-            last_outputs = self._values + query
+            query = tf.expand_dims(query, 1)
+            query = tf.tile(query, [1, tf.shape(values)[1], 1])
+            last_outputs = tf.concat([self._values, query], 2)
             for (i, num_outputs) in enumerate(self._layers):
-                w_att = tf.get_variable("w_att" + i, shape=[num_outputs]) # FIXME shape
-                last_outputs = tf.reduce_sum(w_att * activation_fn(last_outputs), [2])
+                last_outputs = activation_fn(_conv1d(last_outputs, num_outputs))
+
 
 class AttentionCellWrapper(rnn.RNNCell):
     """Basic attention cell wrapper.
@@ -92,7 +93,7 @@ class AttentionCellWrapper(rnn.RNNCell):
 
     @property
     def output_size(self):
-        return self._cell.output_size
+        return (self._cell.output_size, self._attn_ifx.output_size)
 
     def __call__(self, inputs, state, scope=None):
         """Long short-term memory cell with attention (LSTMA)."""
@@ -100,56 +101,31 @@ class AttentionCellWrapper(rnn.RNNCell):
             attn_ctx = self._attn_ifx(state)
             inputs = tf.concat([inputs, attn_ctx], 1)
             output, new_state = self._cell(inputs, state)
-            return output, new_state
+            return (output, attn_ctx), new_state
 
 
 # Copy-pasted from tensorflow repository: /contrib/rnn/python/ops/rnn_cell.py
-def _linear(args, output_size, bias, bias_start=0.0):
-    """Linear map: sum_i(args[i] * W[i]), where W[i] is a variable.
+def _conv1d(inputs, out_channels):
+    """1D convolution with unit filter-width and strides.
     Args:
-      args: a 2D Tensor or a list of 2D, batch x n, Tensors.
-      output_size: int, second dimension of W[i].
-      bias: boolean, whether to add a bias term or not.
-      bias_start: starting value to initialize the bias; 0 by default.
+      inputs: a 3D Tensor of size [B, T, C], Tensors.
+      out_channels: int, third dimension of outputs.
     Returns:
-      A 2D Tensor with shape [batch x output_size] equal to
-      sum_i(args[i] * W[i]), where W[i]s are newly created matrices.
+      A 3D Tensor with shape [B, T, out_channels]
     Raises:
       ValueError: if some of the arguments has unspecified or wrong shape.
     """
-    if args is None or (nest.is_sequence(args) and not args):
-        raise ValueError("`args` must be specified")
-    if not nest.is_sequence(args):
-        args = [args]
 
-    # Calculate the total size of arguments on dimension 1.
-    total_arg_size = 0
-    shapes = [a.get_shape() for a in args]
-    for shape in shapes:
-        if shape.ndims != 2:
-            raise ValueError("linear is expecting 2D arguments: %s" % shapes)
-        if shape[1].value is None:
-            raise ValueError("linear expects shape[1] to be provided for shape %s, "
-                             "but saw %s" % (shape, shape[1]))
-        else:
-            total_arg_size += shape[1].value
+    in_channels = tf.shape(inputs)[2]
+    dtype = args.dtype
 
-    dtype = [a.dtype for a in args][0]
-
-    # Now the computation.
     scope = tf.get_variable_scope()
     with tf.variable_scope(scope) as outer_scope:
-        weights = tf.get_variable(
-            "weights", [total_arg_size, output_size], dtype=dtype)
-        if len(args) == 1:
-            res = tf.matmul(args[0], weights)
-        else:
-            res = tf.matmul(tf.concat(args, 1), weights)
-        if not bias:
-            return res
-        with tf.variable_scope(outer_scope) as inner_scope:
-            inner_scope.set_partitioner(None)
-            biases = tf.get_variable(
-                "biases", [output_size], dtype=dtype,
-                initializer=tf.constant_initializer(bias_start, dtype=dtype))
-        return tf.nn.bias_add(res, biases)
+        filters = tf.get_variable(
+            "filters", [1, in_channels, out_channels], dtype=dtype)
+        res = tf.conv1d(inputs, filters, 1)
+        return res
+        #biases = tf.get_variable(
+        #    "biases", [out_channels], dtype=dtype,
+        #    initializer=tf.constant_initializer(bias_start, dtype=dtype))
+        #return tf.nn.bias_add(res, biases)
