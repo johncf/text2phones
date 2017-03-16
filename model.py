@@ -45,9 +45,10 @@ class Model():
                                                          initial_state_bw=bw_cell_zero)
 
         with tf.name_scope('attn-decoder'):
+            attn_values = tf.concat(enc_out, 2)
+            attn_ifx = attn.BasicAttentionalInterface(attn_values, self.sequence_length)
             dec_cell = rnn.BasicLSTMCell(self._dec_rnn_size, state_is_tuple=True)
-            dec_cell = attn.AttentionCellWrapper(dec_cell, attn_length=input_length,
-                                                 attn_size=2*self._enc_rnn_size, state_is_tuple=True)
+            dec_cell = attn.AttentionCellWrapper(dec_cell, attn_ifx)
 
             def embedding_fn(ids):
                 return tf.one_hot(ids, self._output_size, dtype=self._dtype)
@@ -55,12 +56,10 @@ class Model():
             dec_helper = seq2seq.GreedyEmbeddingHelper(embedding_fn,
                     start_tokens=tf.zeros([batch_size], dtype=tf.int32), end_token=1)
 
-            cell_init, attn_init, _ = dec_cell.zero_state(batch_size, self._dtype)
-            attn_state_init = tf.concat(enc_out, 2) # batch_size x input_length x 2*_enc_rnn_size
-            attn_state_init = tf.reshape(attn_state_init, [batch_size, input_length * 2*self._enc_rnn_size])
-            dec = seq2seq.BasicDecoder(dec_cell, dec_helper, (cell_init, attn_init, attn_state_init))
+            dec = seq2seq.BasicDecoder(dec_cell, dec_helper, dec_cell.zero_state(batch_size, self._dtype))
 
-            self.dec_out, _ = seq2seq.dynamic_decode(dec, output_time_major=True, maximum_iterations=output_length)
+            self.dec_out, _ = seq2seq.dynamic_decode(dec, output_time_major=True,
+                    maximum_iterations=output_length)
 
         #with tf.name_scope('')
 

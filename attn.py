@@ -56,22 +56,22 @@ class BasicAttentionalInterface(AttentionalInterface):
 
     def __call__(self, query, scope=None):
         with tf.variable_scope(scope, "basic_attentional_interface", reuse=self._reuse):
-            values_maxlen = tf.shape(values)[1]
+            values_maxlen = tf.shape(self._values)[1]
             query = tf.expand_dims(query, 1)
             query = tf.tile(query, [1, values_maxlen, 1])
             last_outputs = tf.concat([self._values, query], 2)
             for (i, num_outputs) in enumerate(self._layers):
                 last_outputs = activation_fn(_conv1d(last_outputs, num_outputs,
                                              name="attn-ifx-layer{0}".format(i)))
-            scores = _conv1d(last_outputs, 1, name="attn-ifx-score")
-            scores_mask = tf.sequence_mask(lengths=tf.to_int32(self.values_length),
-                                           maxlen=tf.to_int32(values_maxlen),
+            scores = tf.squeeze(_conv1d(last_outputs, 1, name="attn-ifx-score"), [2])
+            scores_mask = tf.sequence_mask(self._values_length,
+                                           maxlen=values_maxlen,
                                            dtype=self._dtype)
             scores = scores * scores_mask + ((1.0 - scores_mask) * self._dtype.min)
             scores_norm = tf.nn.softmax(scores, name="scores-softmax")
             scores_norm = tf.expand_dims(scores_norm, 2)
 
-            context = scores_norm * values # broadcast and multiply element-wise
+            context = scores_norm * self._values # broadcast and multiply element-wise
             context = tf.reduce_sum(context, 1, name="context")
             return context
 
@@ -106,7 +106,7 @@ class AttentionCellWrapper(rnn.RNNCell):
 
     @property
     def output_size(self):
-        return (self._cell.output_size, self._attn_ifx.output_size)
+        return self._cell.output_size
 
     def __call__(self, inputs, state, scope=None):
         with tf.variable_scope(scope or "attention_cell_wrapper", reuse=self._reuse):
@@ -117,7 +117,7 @@ class AttentionCellWrapper(rnn.RNNCell):
             attn_ctx = self._attn_ifx(query)
             inputs = tf.concat([inputs, attn_ctx], 1)
             output, new_state = self._cell(inputs, state)
-            return (output, attn_ctx), new_state
+            return output, new_state
 
 
 def _conv1d(inputs, out_channels, name=None):
@@ -131,14 +131,14 @@ def _conv1d(inputs, out_channels, name=None):
       ValueError: if some of the arguments has unspecified or wrong shape.
     """
 
-    in_channels = tf.shape(inputs)[2]
+    in_channels = inputs.shape[2]
     dtype = inputs.dtype
 
     scope = tf.get_variable_scope()
     with tf.variable_scope(scope) as outer_scope:
         filters = tf.get_variable(
             "filters", [1, in_channels, out_channels], dtype=dtype)
-        res = tf.conv1d(inputs, filters, 1, name=name)
+        res = tf.nn.conv1d(inputs, filters, 1, 'SAME', name=name)
         return res
         #biases = tf.get_variable(
         #    "biases", [out_channels], dtype=dtype,
