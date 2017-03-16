@@ -1,23 +1,27 @@
+import abc, six
 import tensorflow as tf
 from tensorflow.contrib import rnn, layers
 from tensorflow.python.util import nest
 
-class AttentionalInterface:
-    """Abstract object representing an attentional interface, which can be used
-    to compute context tensor from a query.
+@six.add_metaclass(abc.ABCMeta)
+class AttentionalInterface1D:
+    """Abstract object representing an attentional interface on a sequence of
+    values. The attention should be implemented along the second dimension of
+    values parameter (ie. T in [B, T, ...]).
     """
-    def __init__(self, values, values_length, reuse=None):
+    def __init__(self, values, values_length=None, reuse=None):
         """
         Args:
-          values: tensor of shape [B, T, V] on which attention is implemented.
-          values_length: int32 tensor of shape [B] indicating the true length of
-              the sequences.
+          values: A tensor of shape [B, T, ...].
+          values_length: int32 tensor of shape [B] indicating the true lengths
+              of the sequences. If None, the entire T is used.
         """
         self._values = values
         self._values_length = values_length
         self._dtype = values.dtype
         self._reuse = reuse
 
+    @abc.abstractmethod
     def __call__(self, query, scope=None):
         """
         Args:
@@ -30,10 +34,12 @@ class AttentionalInterface:
 
     @property
     def output_size(self):
-        return tf.shape(self._values)[2:]
+        """Returns [B, V]."""
+        vshape = tf.shape(self._values)
+        return vshape[:1] + vshape[2:]
 
 
-class BasicAttentionalInterface(AttentionalInterface):
+class BasicAttentionalInterface(AttentionalInterface1D):
     """Attentional interface based on https://arxiv.org/abs/1409.0473.
     """
     def __init__(self, values, values_length, activation_fn=tf.tanh, layers=[], reuse=None):
@@ -41,7 +47,7 @@ class BasicAttentionalInterface(AttentionalInterface):
         Args:
           values: tensor of shape [B, T, V] on which attention is implemented.
           values_length: int32 tensor of shape [B] indicating the true length of
-              the sequences.
+              the sequences. If None, the entire T is used.
           layers: number of layers of the feed forward network that is used to
               compute the context vector. By default the inputs and query are
               directly transformed into the context vector terms using a linear
@@ -61,13 +67,14 @@ class BasicAttentionalInterface(AttentionalInterface):
             query = tf.tile(query, [1, values_maxlen, 1])
             last_outputs = tf.concat([self._values, query], 2)
             for (i, num_outputs) in enumerate(self._layers):
-                last_outputs = activation_fn(_conv1d(last_outputs, num_outputs,
+                last_outputs = activation_fn(_linear_seq(last_outputs, num_outputs,
                                              name="attn-ifx-layer{0}".format(i)))
-            scores = tf.squeeze(_conv1d(last_outputs, 1, name="attn-ifx-score"), [2])
-            scores_mask = tf.sequence_mask(self._values_length,
-                                           maxlen=values_maxlen,
-                                           dtype=self._dtype)
-            scores = scores * scores_mask + ((1.0 - scores_mask) * self._dtype.min)
+            scores = tf.squeeze(_linear_seq(last_outputs, 1, name="attn-ifx-score"), [2])
+            if self._values_length is not None:
+                scores_mask = tf.sequence_mask(self._values_length,
+                                               maxlen=values_maxlen,
+                                               dtype=self._dtype)
+                scores = scores * scores_mask
             scores_norm = tf.nn.softmax(scores, name="scores-softmax")
             scores_norm = tf.expand_dims(scores_norm, 2)
 
@@ -84,7 +91,7 @@ class AttentionCellWrapper(rnn.RNNCell):
         """Create a cell with attention.
         Args:
           cell: an RNNCell, an attention is added to it.
-          attn_ifx: an AttentionalInterface object
+          attn_ifx: an AttentionalInterface1D object
           reuse: (optional) Python boolean describing whether to reuse variables
               in an existing scope.  If not `True`, and the existing scope
               already has the given variables, an error is raised.
@@ -94,8 +101,8 @@ class AttentionCellWrapper(rnn.RNNCell):
         """
         if not isinstance(cell, rnn.RNNCell):
             raise TypeError("The parameter cell is not RNNCell.")
-        if not isinstance(attn_ifx, AttentionalInterface):
-            raise TypeError("The parameter attn_ifx is not AttentionalInterface.")
+        if not isinstance(attn_ifx, AttentionalInterface1D):
+            raise TypeError("The parameter attn_ifx is not AttentionalInterface1D.")
         self._cell = cell
         self._attn_ifx = attn_ifx
         self._reuse = reuse
@@ -120,8 +127,9 @@ class AttentionCellWrapper(rnn.RNNCell):
             return output, new_state
 
 
-def _conv1d(inputs, out_channels, name=None):
-    """1D convolution with unit filter-width and strides.
+def _linear_seq(inputs, out_channels, name=None):
+    """Apply a linear transformation on a sequence, using 1D convolution with
+    unit filter-width and strides.
     Args:
       inputs: a 3D Tensor of size [B, T, C], Tensors.
       out_channels: int, third dimension of outputs.
@@ -139,8 +147,8 @@ def _conv1d(inputs, out_channels, name=None):
         filters = tf.get_variable(
             "filters", [1, in_channels, out_channels], dtype=dtype)
         res = tf.nn.conv1d(inputs, filters, 1, 'SAME', name=name)
-        return res
-        #biases = tf.get_variable(
-        #    "biases", [out_channels], dtype=dtype,
-        #    initializer=tf.constant_initializer(bias_start, dtype=dtype))
-        #return tf.nn.bias_add(res, biases)
+        biases = tf.get_variable(
+            "biases", [out_channels], dtype=dtype,
+            initializer=tf.constant_initializer(0.0, dtype=dtype))
+        # bias_add broadcasts biases automatically across higher dimensions
+        return tf.nn.bias_add(res, biases)

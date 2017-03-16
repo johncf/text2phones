@@ -2,10 +2,12 @@ import os
 import numpy as np
 from itertools import islice
 
+_sos = '<sos>'
+_eos = '<eos>'
+
 class Reader:
     def __init__(self, root_path, data='data',
             isymbols='isymbols', osymbols='osymbols',
-            sos='<sos>', eos='<eos>',
             imax_len=64, omax_len=64,
             batch_size=100):
         self.data_handle = open(os.path.join(root_path, data))
@@ -26,19 +28,19 @@ class Reader:
         return len(self.osymbols)
 
     def _input_ids(self, input_):
-        input_ = ['<sos>'] + list(input_.replace(' ', '_').lower()) + ['<eos>']
+        input_ = [_sos] + list(input_.replace(' ', '_').lower()) + [_eos]
         if len(input_) > self.imax_len:
             raise Exception("input length exceeded imax_len")
         ids = np.array([self.isymbols[tok] for tok in input_], dtype=np.int32)
-        ids = np.concatenate((ids, np.zeros([self.imax_len - len(input_)], np.int32) - 1))
+        ids = np.concatenate((ids, np.zeros([self.imax_len - len(input_)], np.int32) + self.isymbols[_eos]))
         return ids, len(input_)
 
     def _output_ids(self, output_):
-        output_ = ['<sos>'] + output_.split() + ['<eos>']
+        output_ = [_sos] + output_.split() + [_eos]
         if len(output_) > self.omax_len:
             raise Exception("output length exceeded omax_len")
         ids = np.array([self.osymbols[tok] for tok in output_], dtype=np.int32)
-        ids = np.concatenate((ids, np.zeros([self.omax_len - len(output_)], np.int32) - 1))
+        ids = np.concatenate((ids, np.zeros([self.omax_len - len(output_)], np.int32) + self.osymbols[_eos]))
         return ids, len(output_)
 
     def next_batch(self):
