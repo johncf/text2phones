@@ -1,5 +1,6 @@
 import tensorflow as tf
 from tensorflow.contrib import rnn, layers
+from tensorflow.python.util import nest
 
 class AttentionalInterface:
     """Abstract object representing an attentional interface, which can be used
@@ -33,6 +34,8 @@ class AttentionalInterface:
 
 
 class BasicAttentionalInterface(AttentionalInterface):
+    """Attentional interface based on https://arxiv.org/abs/1409.0473.
+    """
     def __init__(self, values, values_length, activation_fn=tf.tanh, layers=[], reuse=None):
         """
         Args:
@@ -43,7 +46,7 @@ class BasicAttentionalInterface(AttentionalInterface):
               compute the context vector. By default the inputs and query are
               directly transformed into the context vector terms using a linear
               transformation step.
-          activation_fn: activation function (default: tf.tanh)
+          activation_fn: activation function to use for each layer in layers.
           reuse: (optional) Python boolean describing whether to reuse variables
               in an existing scope. If not `True`, and the existing scope
               already has the given variables, an error is raised.
@@ -65,12 +68,16 @@ class BasicAttentionalInterface(AttentionalInterface):
                                            maxlen=tf.to_int32(values_maxlen),
                                            dtype=self._dtype)
             scores = scores * scores_mask + ((1.0 - scores_mask) * self._dtype.min)
-            return 
+            scores_norm = tf.nn.softmax(scores, name="scores-softmax")
+            scores_norm = tf.expand_dims(scores_norm, 2)
+
+            context = scores_norm * values # broadcast and multiply element-wise
+            context = tf.reduce_sum(context, 1, name="context")
+            return context
 
 
 class AttentionCellWrapper(rnn.RNNCell):
-    """Basic attention cell wrapper.
-    Implementation based on https://arxiv.org/abs/1409.0473.
+    """Attention cell wrapper.
     """
 
     def __init__(self, cell, attn_ifx, reuse=None):
@@ -102,9 +109,12 @@ class AttentionCellWrapper(rnn.RNNCell):
         return (self._cell.output_size, self._attn_ifx.output_size)
 
     def __call__(self, inputs, state, scope=None):
-        """Long short-term memory cell with attention (LSTMA)."""
         with tf.variable_scope(scope or "attention_cell_wrapper", reuse=self._reuse):
-            attn_ctx = self._attn_ifx(state)
+            if nest.is_sequence(self._cell.state_size):
+                query = tf.concat(nest.flatten(state), 1)
+            else:
+                query = state
+            attn_ctx = self._attn_ifx(query)
             inputs = tf.concat([inputs, attn_ctx], 1)
             output, new_state = self._cell(inputs, state)
             return (output, attn_ctx), new_state
