@@ -14,22 +14,24 @@ class AttentionalInterface:
         """
         self._values = values
         self._values_length = values_length
+        self._dtype = values.dtype
         self._reuse = reuse
 
     def __call__(self, query, scope=None):
         """
         Args:
-          query: tensor of shape [B, Q] using which context is computed.
-              (possibly the current state of the decoder)
+          query: a tensor, of shape [B, Q] and same type as values, using which
+              attentional context is computed.
+        Returns:
+          context_vector: the final context vector
         """
         raise NotImplementedError("Abstract method")
 
     @property
     def output_size(self):
-        raise NotImplementedError("Abstract property")
+        return tf.shape(self._values)[2:]
 
 
-# see: https://theneuralperspective.com/2016/11/20/recurrent-neural-network-rnn-part-4
 class BasicAttentionalInterface(AttentionalInterface):
     def __init__(self, values, values_length, activation_fn=tf.tanh, layers=[], reuse=None):
         """
@@ -49,17 +51,21 @@ class BasicAttentionalInterface(AttentionalInterface):
         super(BasicAttentionalInterface, self).__init__(values, values_length, reuse=reuse)
         self._layers = layers
 
-    @property
-    def output_size(self):
-        return tf.shape(self._values)[2:]
-
     def __call__(self, query, scope=None):
         with tf.variable_scope(scope, "basic_attentional_interface", reuse=self._reuse):
+            values_maxlen = tf.shape(values)[1]
             query = tf.expand_dims(query, 1)
-            query = tf.tile(query, [1, tf.shape(values)[1], 1])
+            query = tf.tile(query, [1, values_maxlen, 1])
             last_outputs = tf.concat([self._values, query], 2)
             for (i, num_outputs) in enumerate(self._layers):
-                last_outputs = activation_fn(_conv1d(last_outputs, num_outputs))
+                last_outputs = activation_fn(_conv1d(last_outputs, num_outputs,
+                                             name="attn-ifx-layer{0}".format(i)))
+            scores = _conv1d(last_outputs, 1, name="attn-ifx-score")
+            scores_mask = tf.sequence_mask(lengths=tf.to_int32(self.values_length),
+                                           maxlen=tf.to_int32(values_maxlen),
+                                           dtype=self._dtype)
+            scores = scores * scores_mask + ((1.0 - scores_mask) * self._dtype.min)
+            return 
 
 
 class AttentionCellWrapper(rnn.RNNCell):
@@ -104,8 +110,7 @@ class AttentionCellWrapper(rnn.RNNCell):
             return (output, attn_ctx), new_state
 
 
-# Copy-pasted from tensorflow repository: /contrib/rnn/python/ops/rnn_cell.py
-def _conv1d(inputs, out_channels):
+def _conv1d(inputs, out_channels, name=None):
     """1D convolution with unit filter-width and strides.
     Args:
       inputs: a 3D Tensor of size [B, T, C], Tensors.
@@ -117,13 +122,13 @@ def _conv1d(inputs, out_channels):
     """
 
     in_channels = tf.shape(inputs)[2]
-    dtype = args.dtype
+    dtype = inputs.dtype
 
     scope = tf.get_variable_scope()
     with tf.variable_scope(scope) as outer_scope:
         filters = tf.get_variable(
             "filters", [1, in_channels, out_channels], dtype=dtype)
-        res = tf.conv1d(inputs, filters, 1)
+        res = tf.conv1d(inputs, filters, 1, name=name)
         return res
         #biases = tf.get_variable(
         #    "biases", [out_channels], dtype=dtype,
