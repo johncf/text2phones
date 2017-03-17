@@ -29,8 +29,8 @@ class Reader:
 
     def _input_ids(self, input_):
         input_ = [_sos] + list(input_.replace(' ', '_').lower()) + [_eos]
-        if len(input_) > self.imax_len:
-            raise Exception("input length exceeded imax_len")
+        if len(input_) > self.imax_len: # TODO warn?
+            input_ = input_[:self.imax_len]
         ids = np.array([self.isymbols[tok] for tok in input_], dtype=np.int32)
         ids = np.concatenate((ids, np.zeros([self.imax_len - len(input_)], np.int32) + self.isymbols[_eos]))
         return ids, len(input_)
@@ -38,18 +38,21 @@ class Reader:
     def _output_ids(self, output_):
         # the output does not need _sos; but the symbol needs to be defined
         output_ = output_.split() + [_eos]
-        if len(output_) > self.omax_len:
-            raise Exception("output length exceeded omax_len")
+        if len(output_) > self.omax_len: # TODO warn?
+            output_ = output_[:self.omax_len]
         ids = np.array([self.osymbols[tok] for tok in output_], dtype=np.int32)
         ids = np.concatenate((ids, np.zeros([self.omax_len - len(output_)], np.int32) + self.osymbols[_eos]))
         return ids, len(output_)
 
     def next_batch(self):
-        inputs, outputs = zip(*[line.strip().split(' :: ')
-                                for line in islice(self.data_handle, self.batch_size)])
-        inputs_ids, inputs_len = zip(*[self._input_ids(i) for i in inputs])
-        outputs_ids, outputs_len = zip(*[self._output_ids(o) for o in outputs])
-        return (np.array(inputs_ids),
-                np.array(inputs_len),
-                np.array(outputs_ids),
-                np.array(outputs_len))
+        data = [line.strip().split(' :: ') for line in islice(self.data_handle, self.batch_size)]
+        if data:
+            inputs, outputs = zip(*data)
+            inputs_ids, inputs_len = zip(*[self._input_ids(i) for i in inputs])
+            outputs_ids, outputs_len = zip(*[self._output_ids(o) for o in outputs])
+            return (np.array(inputs_ids),
+                    np.array(inputs_len),
+                    np.array(outputs_ids),
+                    np.array(outputs_len))
+        else:
+            return None, None, None, None

@@ -81,14 +81,18 @@ class Model():
 
         self._build_model(batch_size, train_helper)
 
+        output_maxlen = tf.shape(self.outputs)[1]
+        output_data_slice = tf.slice(self.output_data, [0, 0], [-1, output_maxlen])
+
         with tf.name_scope("losses"):
-            output_maxlen = tf.shape(self.outputs)[1]
-            output_data_slice = tf.slice(self.output_data, [0, 0], [-1, output_maxlen])
             losses = tf.nn.sparse_softmax_cross_entropy_with_logits(
                     logits=self.outputs, labels=output_data_slice)
             losses_mask = tf.sequence_mask(
                     self.output_lengths, maxlen=output_maxlen, dtype=self._dtype)
             self.losses = tf.reduce_sum(losses * losses_mask, 1)
+
+        self.train_step = tf.train.AdamOptimizer(1e-4).minimize(self.losses)
+        self.accuracy = tf.reduce_mean(tf.cast(tf.equal(self.output_ids, output_data_slice), tf.float32))
 
     def infer(self, output_maxlen=128):
         """Build model for inference.
