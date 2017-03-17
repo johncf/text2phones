@@ -36,7 +36,8 @@ class Reader:
         return ids, len(input_)
 
     def _output_ids(self, output_):
-        output_ = [_sos] + output_.split() + [_eos]
+        # the output does not need _sos; but the symbol needs to be defined
+        output_ = output_.split() + [_eos]
         if len(output_) > self.omax_len:
             raise Exception("output length exceeded omax_len")
         ids = np.array([self.osymbols[tok] for tok in output_], dtype=np.int32)
