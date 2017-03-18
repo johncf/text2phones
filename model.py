@@ -71,13 +71,19 @@ class Model():
         self.output_data = tf.placeholder(tf.int32, [batch_size, None], name='output_data')
         self.output_lengths = tf.placeholder(tf.int32, [batch_size], name='output_lengths')
 
+        def infer_helper():
+            return seq2seq.GreedyEmbeddingHelper(
+                    self._output_onehot,
+                    start_tokens=tf.fill([batch_size], self._output_sos_id),
+                    end_token=self._output_eos_id)
+
         def train_helper():
             start_ids = tf.fill([batch_size, 1], self._output_sos_id)
             decoder_input_ids = tf.concat([start_ids, self.output_data], 1)
             decoder_inputs = self._output_onehot(decoder_input_ids)
             return seq2seq.TrainingHelper(decoder_inputs, self.output_lengths)
 
-        self._build_model(batch_size, train_helper)
+        self._build_model(batch_size, infer_helper)
 
         output_maxlen = tf.shape(self.outputs)[1]
         output_data_slice = tf.slice(self.output_data, [0, 0], [-1, output_maxlen])
