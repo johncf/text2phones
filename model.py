@@ -71,6 +71,8 @@ class Model():
         self.output_data = tf.placeholder(tf.int32, [batch_size, None], name='output_data')
         self.output_lengths = tf.placeholder(tf.int32, [batch_size], name='output_lengths')
 
+        output_data_maxlen = tf.shape(self.output_data)[1]
+
         def infer_helper():
             return seq2seq.GreedyEmbeddingHelper(
                     self._output_onehot,
@@ -83,20 +85,21 @@ class Model():
             decoder_inputs = self._output_onehot(decoder_input_ids)
             return seq2seq.TrainingHelper(decoder_inputs, self.output_lengths)
 
-        self._build_model(batch_size, infer_helper)
+        self._build_model(batch_size, infer_helper, decoder_maxiters=output_data_maxlen)
 
-        output_maxlen = tf.shape(self.outputs)[1]
+        output_maxlen = tf.minimum(tf.shape(self.outputs)[1], output_data_maxlen)
         output_data_slice = tf.slice(self.output_data, [0, 0], [-1, output_maxlen])
+        outputs_slice = tf.slice(self.outputs, [0, 0, 0], [-1, output_maxlen, -1])
 
         with tf.name_scope("losses"):
             losses = tf.nn.sparse_softmax_cross_entropy_with_logits(
-                    logits=self.outputs, labels=output_data_slice)
+                    logits=outputs_slice, labels=output_data_slice)
             losses_mask = tf.sequence_mask(
                     self.output_lengths, maxlen=output_maxlen, dtype=self._dtype)
             self.losses = tf.reduce_sum(losses * losses_mask, 1)
             tf.summary.scalar('losses', tf.reduce_sum(self.losses))
 
-        self.train_step = tf.train.AdamOptimizer(1e-4).minimize(self.losses)
+        self.train_step = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1e-6).minimize(self.losses)
         equality = tf.equal(self.output_ids, output_data_slice)
         self.accuracy = tf.reduce_mean(tf.cast(equality, tf.float32))
 
