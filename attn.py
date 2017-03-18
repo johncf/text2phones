@@ -7,12 +7,12 @@ from tensorflow.python.util import nest
 class AttentionalInterface1D:
     """Abstract object representing an attentional interface on a sequence of
     values. The attention should be implemented along the second dimension of
-    values parameter (ie. T in [B, T, ...]).
+    values parameter (ie. T in [B, T, V]).
     """
     def __init__(self, values, values_length=None, reuse=None):
         """
         Args:
-          values: A tensor of shape [B, T, ...].
+          values: A tensor of shape [B, T, V].
           values_length: int32 tensor of shape [B] indicating the true lengths
               of the sequences. If None, the entire T is used.
         """
@@ -28,15 +28,14 @@ class AttentionalInterface1D:
           query: a tensor, of shape [B, Q] and same type as values, using which
               attentional context is computed.
         Returns:
-          context_vector: the final context vector
+          The final context vector.
         """
         raise NotImplementedError("Abstract method")
 
     @property
     def output_size(self):
-        """Returns [B, V]."""
-        vshape = tf.shape(self._values)
-        return vshape[:1] + vshape[2:]
+        """Returns V."""
+        return tf.shape(self._values)[2]
 
 
 class BasicAttentionalInterface(AttentionalInterface1D):
@@ -84,7 +83,9 @@ class BasicAttentionalInterface(AttentionalInterface1D):
 
 
 class AttentionCellWrapper(rnn.RNNCell):
-    """Attention cell wrapper.
+    """Attention cell wrapper. Uses the cell state to query the attentional
+    interface, and outputs the attention context vector concatenated with cell
+    output.
     """
 
     def __init__(self, cell, attn_ifx, reuse=None):
@@ -113,7 +114,7 @@ class AttentionCellWrapper(rnn.RNNCell):
 
     @property
     def output_size(self):
-        return self._cell.output_size
+        return self._attn_ifx.output_size + self._cell.output_size
 
     def __call__(self, inputs, state, scope=None):
         with tf.variable_scope(scope or "attention_cell_wrapper", reuse=self._reuse):
@@ -124,7 +125,7 @@ class AttentionCellWrapper(rnn.RNNCell):
             attn_ctx = self._attn_ifx(query)
             inputs = tf.concat([inputs, attn_ctx], 1)
             output, new_state = self._cell(inputs, state)
-            return output, new_state
+            return tf.concat([attn_ctx, output], 1), new_state
 
 
 def _linear_seq(inputs, out_channels, name=None):
