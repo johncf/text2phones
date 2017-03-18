@@ -2,8 +2,6 @@ import tensorflow as tf
 from tensorflow.contrib import rnn, seq2seq
 import attn
 
-import numpy as np
-
 class Model():
     def __init__(self, dtype=tf.float32, **kwargs):
         """
@@ -68,10 +66,10 @@ class Model():
         Args:
             batch_size: size of training batch
         """
-        self.input_data = tf.placeholder(tf.int32, [batch_size, None])
-        self.input_lengths = tf.placeholder(tf.int32, [batch_size]) # actual input lengths
-        self.output_data = tf.placeholder(tf.int32, [batch_size, None])
-        self.output_lengths = tf.placeholder(tf.int32, [batch_size]) # actual output lengths
+        self.input_data = tf.placeholder(tf.int32, [batch_size, None], name='input_data')
+        self.input_lengths = tf.placeholder(tf.int32, [batch_size], name='input_lengths')
+        self.output_data = tf.placeholder(tf.int32, [batch_size, None], name='output_data')
+        self.output_lengths = tf.placeholder(tf.int32, [batch_size], name='output_lengths')
 
         def train_helper():
             start_ids = tf.fill([batch_size, 1], self._output_sos_id)
@@ -97,7 +95,7 @@ class Model():
     def infer(self, output_maxlen=128):
         """Build model for inference.
         """
-        self.input_data = tf.placeholder(tf.int32, [1, None])
+        self.input_data = tf.placeholder(tf.int32, [1, None], name='input_data')
         self.input_lengths = None
 
         def infer_helper():
