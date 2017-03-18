@@ -88,9 +88,11 @@ class Model():
             losses_mask = tf.sequence_mask(
                     self.output_lengths, maxlen=output_maxlen, dtype=self._dtype)
             self.losses = tf.reduce_sum(losses * losses_mask, 1)
+            tf.summary.scalar('losses', tf.reduce_sum(self.losses))
 
         self.train_step = tf.train.AdamOptimizer(1e-4).minimize(self.losses)
-        self.accuracy = tf.reduce_mean(tf.cast(tf.equal(self.output_ids, output_data_slice), tf.float32))
+        equality = tf.equal(self.output_ids, output_data_slice)
+        self.accuracy = tf.reduce_mean(tf.cast(equality, tf.float32))
 
     def infer(self, output_maxlen=128):
         """Build model for inference.

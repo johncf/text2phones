@@ -44,12 +44,18 @@ def main():
                      m.output_lengths: output_len }
             sess.run(m.train_step, feed_dict=feed)
 
-            if i % 50 == 0:
+            if (i+1) % 50 == 0:
                 train_accuracy = sess.run(m.accuracy, feed_dict=feed)
-                print("step {0}, training accuracy {1}".format(i, train_accuracy))
+                print("step {0}, training accuracy {1}".format(i+1, train_accuracy))
 
-            if i % 200 == 0:
+            if (i+1) % 200 == 0:
                 save_path = saver.save(sess, checkpoint)
                 print("Model saved in file: %s" % save_path)
+
+        writer = tf.summary.FileWriter('logdir', sess.graph)
+        summaries = tf.summary.merge_all()
+        summary_out = sess.run(summaries, feed_dict=feed)
+        writer.add_summary(summary_out)
+        writer.close()
 
 main()
