@@ -3,10 +3,12 @@
 import tensorflow as tf
 import data
 import model
+from glob import glob
 
 batch_size = 32
 input_max_length = 56
 output_max_length = 60
+checkpoint = "/tmp/model.ckpt"
 
 def main():
     reader = data.Reader('.', data='data',
@@ -19,8 +21,16 @@ def main():
 
     init = tf.global_variables_initializer()
 
+    saver = tf.train.Saver()
+
     with tf.Session() as sess:
-        sess.run(init)
+        if len(glob(checkpoint + "*")) > 0:
+            saver.restore(sess, checkpoint)
+            print("Model restored!")
+        else:
+            sess.run(init)
+            print("Fresh variables!")
+
         for i in range(1000):
             input_ids, input_len, output_ids, output_len = reader.next_batch()
 
@@ -37,5 +47,9 @@ def main():
             if i % 50 == 0:
                 train_accuracy = sess.run(m.accuracy, feed_dict=feed)
                 print("step {0}, training accuracy {1}".format(i, train_accuracy))
+
+            if i % 200 == 0:
+                save_path = saver.save(sess, checkpoint)
+                print("Model saved in file: %s" % save_path)
 
 main()
