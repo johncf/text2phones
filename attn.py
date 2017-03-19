@@ -58,6 +58,7 @@ class BasicAttentionalInterface(AttentionalInterface1D):
         """
         super(BasicAttentionalInterface, self).__init__(values, values_length, reuse=reuse)
         self._layers = layers
+        self._act_fn = activation_fn
 
     def __call__(self, query, scope=None):
         with tf.variable_scope(scope, "basic_attentional_interface", reuse=self._reuse):
@@ -66,9 +67,9 @@ class BasicAttentionalInterface(AttentionalInterface1D):
             query = tf.tile(query, [1, values_maxlen, 1])
             last_outputs = tf.concat([self._values, query], 2)
             for (i, num_outputs) in enumerate(self._layers):
-                last_outputs = activation_fn(_linear_seq(last_outputs, num_outputs,
-                                             name="attn-ifx-layer{0}".format(i)))
-            scores = tf.squeeze(_linear_seq(last_outputs, 1, name="attn-ifx-score"), [2])
+                last_outputs = self._act_fn(_linear_seq(last_outputs, num_outputs,
+                                            scope="attn-ifx-layer{0}".format(i)))
+            scores = tf.squeeze(_linear_seq(last_outputs, 1, scope="attn-ifx-score"), [2])
             if self._values_length is not None:
                 scores_mask = tf.sequence_mask(self._values_length,
                                                maxlen=values_maxlen,
@@ -128,7 +129,7 @@ class AttentionCellWrapper(rnn.RNNCell):
             return tf.concat([attn_ctx, output], 1), new_state
 
 
-def _linear_seq(inputs, out_channels, name=None):
+def _linear_seq(inputs, out_channels, scope=None):
     """Apply a linear transformation on a sequence, using 1D convolution with
     unit filter-width and strides.
     Args:
@@ -143,11 +144,10 @@ def _linear_seq(inputs, out_channels, name=None):
     in_channels = inputs.shape[2]
     dtype = inputs.dtype
 
-    scope = tf.get_variable_scope()
-    with tf.variable_scope(scope) as outer_scope:
+    with tf.variable_scope(scope):
         filters = tf.get_variable(
             "filters", [1, in_channels, out_channels], dtype=dtype)
-        res = tf.nn.conv1d(inputs, filters, 1, 'SAME', name=name)
+        res = tf.nn.conv1d(inputs, filters, 1, 'SAME', name="sequence-linear-transform")
         biases = tf.get_variable(
             "biases", [out_channels], dtype=dtype,
             initializer=tf.constant_initializer(0.0, dtype=dtype))
