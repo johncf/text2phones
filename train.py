@@ -48,7 +48,7 @@ def main():
                 train_accuracy = sess.run(m.accuracy, feed_dict=feed)
                 print("step {0}, training accuracy {1}".format(i+1, train_accuracy))
 
-            if (i+1) % 200 == 0:
+            if (i+1) % 950 == 0:
                 save_path = saver.save(sess, checkpoint)
                 print("Model saved in file: %s" % save_path)
 

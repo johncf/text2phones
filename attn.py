@@ -71,21 +71,16 @@ class BasicAttentionalInterface(AttentionalInterface1D):
                                             scope="attn-ifx-layer{0}".format(i)))
             scores = tf.squeeze(_linear_seq(last_outputs, 1, scope="attn-ifx-score"), [2])
 
-            ## dummy score mask
-            batch_size = tf.shape(self._values)[:1]
-            dummy_lengths = tf.fill(batch_size, 4)
-            scores_mask = tf.sequence_mask(dummy_lengths,
-                                           maxlen=values_maxlen,
-                                           dtype=self._dtype)
-            scores_mask = (1 - scores_mask)*(-100)
-            scores = scores + scores_mask
-            ## actual score mask
-            #if self._values_length is not None:
-            #    scores_mask = tf.sequence_mask(tf.fill(), #self._values_length,
-            #                                   maxlen=values_maxlen,
-            #                                   dtype=self._dtype)
-            #    scores = scores * scores_mask
-            ## dummy mask end
+            if self._values_length is not None:
+                scores_mask = tf.sequence_mask(self._values_length,
+                                               maxlen=values_maxlen,
+                                               dtype=self._dtype)
+                scores = scores * scores_mask
+                #scores_mask = tf.sequence_mask(self._values_length,
+                #                               maxlen=values_maxlen,
+                #                               dtype=self._dtype)
+                #scores_mask = (1 - scores_mask)*100
+                #scores = scores - scores_mask
             scores_norm = tf.nn.softmax(scores, name="scores-softmax")
             scores_norm = tf.expand_dims(scores_norm, 2)
 

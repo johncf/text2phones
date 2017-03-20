@@ -13,20 +13,27 @@ class Model():
                 decoder at start; a reserved index that is never actually
                 output; default: 0)
             output_eos_id: index of output end-of-sequence id (default: 1)
-            enc_rnn_size: number of units in the LSTM cell (default: 32)
-            dec_rnn_size: number of units in the LSTM cell (default: 48)
+            enc_rnn_size: number of units in the LSTM cell (default: 48)
+            dec_rnn_size: number of units in the LSTM cell (default: 56)
         """
         self._input_size = kwargs['input_size']
         self._output_size = kwargs['output_size']
         self._output_sos_id = kwargs.get('output_sos_id', 0)
         self._output_eos_id = kwargs.get('output_eos_id', 1)
-        self._enc_rnn_size = kwargs.get('enc_rnn_size', 32)
-        self._dec_rnn_size = kwargs.get('dec_rnn_size', 48)
+        self._enc_rnn_size = kwargs.get('enc_rnn_size', 48)
+        self._dec_rnn_size = kwargs.get('dec_rnn_size', 56)
         self._dtype = dtype
 
     def _build_model(self, batch_size, helper_build_fn, decoder_maxiters=None):
         # embed input_data into a one-hot representation
         inputs = tf.one_hot(self.input_data, self._input_size, dtype=self._dtype)
+        inputs_len = self.input_lengths
+        ## truncate inputs (debug dummy)
+        trunc_len = 9
+        inputs = tf.slice(inputs, [0,0,0], [-1, trunc_len, -1])
+        inputs_len_x = tf.expand_dims(inputs_len, 1)
+        inputs_len = tf.reduce_min(tf.concat([inputs_len_x, tf.zeros_like(inputs_len_x) + trunc_len], 1), 1)
+        ## end of truncate inputs
 
         with tf.name_scope('bidir-encoder'):
             fw_cell = rnn.BasicLSTMCell(self._enc_rnn_size, state_is_tuple=True)
@@ -35,13 +42,13 @@ class Model():
             bw_cell_zero = bw_cell.zero_state(batch_size, self._dtype)
 
             enc_out, _ = tf.nn.bidirectional_dynamic_rnn(fw_cell, bw_cell, inputs,
-                                                         sequence_length=self.input_lengths,
+                                                         sequence_length=inputs_len,
                                                          initial_state_fw=fw_cell_zero,
                                                          initial_state_bw=bw_cell_zero)
 
         with tf.name_scope('attn-decoder'):
             attn_values = tf.concat(enc_out, 2)
-            attn_ifx = attn.BasicAttentionalInterface(attn_values, self.input_lengths)
+            attn_ifx = attn.BasicAttentionalInterface(attn_values, inputs_len, layers=[self._enc_rnn_size])
             dec_cell_attn = rnn.BasicLSTMCell(self._dec_rnn_size, state_is_tuple=True)
             dec_cell_attn = attn.AttentionCellWrapper(dec_cell_attn, attn_ifx)
             #dec_cell_mid = rnn.BasicLSTMCell(self._dec_rnn_size, state_is_tuple=True)
@@ -71,7 +78,7 @@ class Model():
         self.output_data = tf.placeholder(tf.int32, [batch_size, None], name='output_data')
         self.output_lengths = tf.placeholder(tf.int32, [batch_size], name='output_lengths')
 
-        output_data_maxlen = 2 #tf.shape(self.output_data)[1]
+        output_data_maxlen = 6 # dummy #tf.shape(self.output_data)[1]
 
         def infer_helper():
             return seq2seq.GreedyEmbeddingHelper(
