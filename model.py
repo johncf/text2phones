@@ -29,7 +29,7 @@ class Model():
         inputs = tf.one_hot(self.input_data, self._input_size, dtype=self._dtype)
         inputs_len = self.input_lengths
         ## truncate inputs (debug dummy)
-        trunc_len = 9
+        trunc_len = 20
         inputs = tf.slice(inputs, [0,0,0], [-1, trunc_len, -1])
         inputs_len_x = tf.expand_dims(inputs_len, 1)
         inputs_len = tf.reduce_min(tf.concat([inputs_len_x, tf.zeros_like(inputs_len_x) + trunc_len], 1), 1)
@@ -78,7 +78,7 @@ class Model():
         self.output_data = tf.placeholder(tf.int32, [batch_size, None], name='output_data')
         self.output_lengths = tf.placeholder(tf.int32, [batch_size], name='output_lengths')
 
-        output_data_maxlen = 6 # dummy #tf.shape(self.output_data)[1]
+        output_data_maxlen = 9 # dummy #tf.shape(self.output_data)[1]
 
         def infer_helper():
             return seq2seq.GreedyEmbeddingHelper(
@@ -106,7 +106,7 @@ class Model():
             self.losses = tf.reduce_sum(losses * losses_mask, 1)
             tf.summary.scalar('losses', tf.reduce_sum(self.losses))
 
-        self.train_step = tf.train.AdamOptimizer(learning_rate=1e-4, epsilon=1e-6).minimize(self.losses)
+        self.train_step = tf.train.AdamOptimizer(learning_rate=5e-5, epsilon=5e-7).minimize(self.losses)
         equality = tf.equal(self.output_ids, output_data_slice)
         self.accuracy = tf.reduce_mean(tf.cast(equality, tf.float32))
 

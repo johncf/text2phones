@@ -45,6 +45,7 @@ class Reader:
         self.in_maxlen = in_maxlen
         self.out_maxlen = out_maxlen
         self.batch_size = batch_size
+        self.seek_count = 0
 
     @property
     def input_size(self):
@@ -70,7 +71,7 @@ class Reader:
         ids = np.concatenate([ids, pad])
         return ids, len(ids)
 
-    def next_batch(self):
+    def next_batch(self, repeat=True):
         data = [line.strip().split(' :: ') for line in islice(self.data_handle, self.batch_size)]
         if data and len(data) == self.batch_size:
             inputs, outputs = zip(*data)
@@ -80,5 +81,10 @@ class Reader:
                     np.array(inputs_len),
                     np.array(outputs_ids),
                     np.array(outputs_len))
+        elif repeat:
+            self.data_handle.seek(0)
+            self.seek_count += 1
+            print('Seeked:', self.seek_count)
+            return self.next_batch(repeat=False)
         else:
             return None, None, None, None

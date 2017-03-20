@@ -75,12 +75,8 @@ class BasicAttentionalInterface(AttentionalInterface1D):
                 scores_mask = tf.sequence_mask(self._values_length,
                                                maxlen=values_maxlen,
                                                dtype=self._dtype)
-                scores = scores * scores_mask
-                #scores_mask = tf.sequence_mask(self._values_length,
-                #                               maxlen=values_maxlen,
-                #                               dtype=self._dtype)
-                #scores_mask = (1 - scores_mask)*100
-                #scores = scores - scores_mask
+                #scores = scores * scores_mask
+                scores = scores - (1 - scores_mask)*100
             scores_norm = tf.nn.softmax(scores, name="scores-softmax")
             scores_norm = tf.expand_dims(scores_norm, 2)
 
