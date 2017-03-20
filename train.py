@@ -11,7 +11,7 @@ output_max_length = 60
 checkpoint = "/tmp/model.ckpt"
 
 def main():
-    reader = data.Reader('.', data='data',
+    reader = data.Reader('.', data='data-dict',
                               batch_size=batch_size,
                               in_maxlen=input_max_length,
                               out_maxlen=output_max_length)
@@ -31,7 +31,7 @@ def main():
             sess.run(init)
             print("Fresh variables!")
 
-        for i in range(1000):
+        for i in range(10000):
             input_ids, input_len, output_ids, output_len = reader.next_batch()
 
             if input_ids is None:

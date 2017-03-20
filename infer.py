@@ -25,6 +25,14 @@ def main():
             print("No model found!")
             return
 
+        # -- debug --
+        np.set_printoptions(threshold=np.inf)
+        for v in tf.trainable_variables():
+            print(v.name)
+            print(sess.run(v))
+            print()
+        return
+
         input_ = input('in> ')
         input_ids = parser.parse_input(input_)
 

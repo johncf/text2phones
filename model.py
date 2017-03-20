@@ -44,9 +44,9 @@ class Model():
             attn_ifx = attn.BasicAttentionalInterface(attn_values, self.input_lengths)
             dec_cell_attn = rnn.BasicLSTMCell(self._dec_rnn_size, state_is_tuple=True)
             dec_cell_attn = attn.AttentionCellWrapper(dec_cell_attn, attn_ifx)
-            dec_cell_mid = rnn.BasicLSTMCell(self._dec_rnn_size, state_is_tuple=True)
+            #dec_cell_mid = rnn.BasicLSTMCell(self._dec_rnn_size, state_is_tuple=True)
             dec_cell_out = rnn.BasicLSTMCell(self._output_size, state_is_tuple=True)
-            dec_cell = rnn.MultiRNNCell([dec_cell_attn, dec_cell_mid, dec_cell_out],
+            dec_cell = rnn.MultiRNNCell([dec_cell_attn, dec_cell_out],
                                         state_is_tuple=True)
 
             dec = seq2seq.BasicDecoder(dec_cell, helper_build_fn(),
@@ -71,7 +71,7 @@ class Model():
         self.output_data = tf.placeholder(tf.int32, [batch_size, None], name='output_data')
         self.output_lengths = tf.placeholder(tf.int32, [batch_size], name='output_lengths')
 
-        output_data_maxlen = tf.shape(self.output_data)[1]
+        output_data_maxlen = 2 #tf.shape(self.output_data)[1]
 
         def infer_helper():
             return seq2seq.GreedyEmbeddingHelper(
@@ -119,3 +119,9 @@ class Model():
 
 # Also See
 #   https://groups.google.com/a/tensorflow.org/forum/#!topic/discuss/dw3Y2lnMAJc
+#            fw_cell1 = rnn.BasicLSTMCell(self._enc_rnn_size, state_is_tuple=True)
+#            fw_cell2 = rnn.BasicLSTMCell(self._enc_rnn_size, state_is_tuple=True)
+#            fw_cell = rnn.MultiRNNCell([fw_cell1, fw_cell2], state_is_tuple=True)
+#            bw_cell1 = rnn.BasicLSTMCell(self._enc_rnn_size, state_is_tuple=True)
+#            bw_cell2 = rnn.BasicLSTMCell(self._enc_rnn_size, state_is_tuple=True)
+#            bw_cell = rnn.MultiRNNCell([bw_cell1, bw_cell2], state_is_tuple=True)
