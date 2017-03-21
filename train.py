@@ -6,13 +6,14 @@ import model
 from glob import glob
 import sys
 
-batch_size = 32
+batch_size = 56
 input_max_length = 30
 output_max_length = 28
-checkpoint = "ckpts/model.ckpt"
+checkpoint = "ckpts/controlled/model.ckpt"
+logdir = "logdir/train3_controlled2"
 
 def main():
-    reader = data.Reader('.', data='data-dict',
+    reader = data.Reader('.', data='data-mix2',
                               batch_size=batch_size,
                               in_maxlen=input_max_length,
                               out_maxlen=output_max_length)
@@ -30,7 +31,7 @@ def main():
     saver = tf.train.Saver()
 
     with tf.Session() as sess:
-        summary_writer = tf.summary.FileWriter('logdir/train', sess.graph)
+        summary_writer = tf.summary.FileWriter(logdir, sess.graph)
 
         if len(glob(checkpoint + "*")) > 0:
             saver.restore(sess, checkpoint)
@@ -52,18 +53,19 @@ def main():
                      m.output_lengths: output_len }
             summary_out, _ = sess.run([summaries, m.train_step], feed_dict=feed)
 
-            if (i+1) % 50 == 0:
-                summary_writer.add_summary(summary_out)
+            if (i+1) % 100 == 0:
+                summary_writer.add_summary(summary_out, (i+1)/50)
                 train_accuracy = sess.run(m.accuracy, feed_dict=feed)
                 avg_accuracy += train_accuracy
                 count += 1
                 print("step {0}, training accuracy {1}".format(i+1, train_accuracy))
 
-            if (i+1) % 1000 == 0:
+            if (i+1) % 2000 == 0:
                 print("Average accuracy:", avg_accuracy/count)
                 avg_accuracy = 0.0
                 count = 0
 
+                summary_writer.flush()
                 save_path = saver.save(sess, checkpoint)
                 print("Model saved in file:", save_path)
 

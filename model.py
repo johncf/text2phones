@@ -1,6 +1,5 @@
 import tensorflow as tf
 from tensorflow.contrib import rnn, seq2seq
-import attn
 
 class Model():
     def __init__(self, dtype=tf.float32, **kwargs):
@@ -48,9 +47,9 @@ class Model():
 
         with tf.name_scope('attn-decoder'):
             attn_values = tf.concat(enc_out, 2)
-            attn_ifx = attn.BasicAttentionalInterface(attn_values, inputs_len, layers=[self._enc_rnn_size])
-            dec_cell_attn = rnn.BasicLSTMCell(self._dec_rnn_size, state_is_tuple=True)
-            dec_cell_attn = attn.AttentionCellWrapper(dec_cell_attn, attn_ifx)
+            attn_mech = seq2seq.LuongAttention(self._enc_rnn_size * 2, attn_values, inputs_len)
+            dec_cell_attn = rnn.BasicLSTMCell(self._enc_rnn_size * 2, state_is_tuple=True)
+            dec_cell_attn = seq2seq.DynamicAttentionWrapper(dec_cell_attn, attn_mech, self._enc_rnn_size * 2)
             #dec_cell_mid = rnn.BasicLSTMCell(self._dec_rnn_size, state_is_tuple=True)
             dec_cell_out = rnn.BasicLSTMCell(self._output_size, state_is_tuple=True)
             dec_cell = rnn.MultiRNNCell([dec_cell_attn, dec_cell_out],
@@ -78,7 +77,8 @@ class Model():
         self.output_data = tf.placeholder(tf.int32, [batch_size, None], name='output_data')
         self.output_lengths = tf.placeholder(tf.int32, [batch_size], name='output_lengths')
 
-        output_data_maxlen = 9 # dummy #tf.shape(self.output_data)[1]
+        output_data_maxlen = tf.shape(self.output_data)[1]
+        output_data_maxlen = 15 # dummy
 
         def infer_helper():
             return seq2seq.GreedyEmbeddingHelper(
@@ -98,17 +98,24 @@ class Model():
         output_data_slice = tf.slice(self.output_data, [0, 0], [-1, output_maxlen])
         outputs_slice = tf.slice(self.outputs, [0, 0, 0], [-1, output_maxlen, -1])
 
-        with tf.name_scope("losses"):
+        with tf.name_scope("costs"):
             losses = tf.nn.sparse_softmax_cross_entropy_with_logits(
                     logits=outputs_slice, labels=output_data_slice)
             losses_mask = tf.sequence_mask(
                     self.output_lengths, maxlen=output_maxlen, dtype=self._dtype)
-            self.losses = tf.reduce_sum(losses * losses_mask, 1)
+            losses = losses * losses_mask
+            # output_id = 41 => space : halve the cost of mis-output of space
+            space_mask = tf.cast(tf.equal(output_data_slice, 41), dtype=tf.float32)
+            losses = losses * (1.0 - 0.5*space_mask)
+
+            self.losses = tf.reduce_sum(losses, 1)
             tf.summary.scalar('losses', tf.reduce_sum(self.losses))
 
-        self.train_step = tf.train.AdamOptimizer(learning_rate=5e-5, epsilon=5e-7).minimize(self.losses)
-        equality = tf.equal(self.output_ids, output_data_slice)
-        self.accuracy = tf.reduce_mean(tf.cast(equality, tf.float32))
+            equality = tf.equal(self.output_ids, output_data_slice)
+            self.accuracy = tf.reduce_mean(tf.cast(equality, tf.float32))
+            tf.summary.scalar('accuracy', tf.reduce_sum(self.accuracy))
+
+        self.train_step = tf.train.AdamOptimizer(learning_rate=1e-5, epsilon=1e-7).minimize(self.losses)
 
     def infer(self, output_maxlen=128):
         """Build model for inference.
