@@ -7,10 +7,10 @@ from glob import glob
 import sys
 
 batch_size = 56
-input_max_length = 30
-output_max_length = 28
-checkpoint = "ckpts/controlled/model.ckpt"
-logdir = "logdir/train3_controlled2"
+input_max_length = 24
+output_max_length = 20
+checkpoint = "ckpts/discntd-a-loss/model.ckpt"
+logdir = "logdir/train4_discntd_a-loss2"
 
 def main():
     reader = data.Reader('.', data='data-mix2',

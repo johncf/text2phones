@@ -28,10 +28,10 @@ class Model():
         inputs = tf.one_hot(self.input_data, self._input_size, dtype=self._dtype)
         inputs_len = self.input_lengths
         ## truncate inputs (debug dummy)
-        trunc_len = 20
-        inputs = tf.slice(inputs, [0,0,0], [-1, trunc_len, -1])
-        inputs_len_x = tf.expand_dims(inputs_len, 1)
-        inputs_len = tf.reduce_min(tf.concat([inputs_len_x, tf.zeros_like(inputs_len_x) + trunc_len], 1), 1)
+        #trunc_len = 20
+        #inputs = tf.slice(inputs, [0,0,0], [-1, trunc_len, -1])
+        #inputs_len_x = tf.expand_dims(inputs_len, 1)
+        #inputs_len = tf.reduce_min(tf.concat([inputs_len_x, tf.zeros_like(inputs_len_x) + trunc_len], 1), 1)
         ## end of truncate inputs
 
         with tf.name_scope('bidir-encoder'):
@@ -78,7 +78,7 @@ class Model():
         self.output_lengths = tf.placeholder(tf.int32, [batch_size], name='output_lengths')
 
         output_data_maxlen = tf.shape(self.output_data)[1]
-        output_data_maxlen = 15 # dummy
+        #output_data_maxlen = 15 # dummy
 
         def infer_helper():
             return seq2seq.GreedyEmbeddingHelper(
@@ -95,24 +95,37 @@ class Model():
         self._build_model(batch_size, infer_helper, decoder_maxiters=output_data_maxlen)
 
         output_maxlen = tf.minimum(tf.shape(self.outputs)[1], output_data_maxlen)
-        output_data_slice = tf.slice(self.output_data, [0, 0], [-1, output_maxlen])
-        outputs_slice = tf.slice(self.outputs, [0, 0, 0], [-1, output_maxlen, -1])
+        out_data_slice = tf.slice(self.output_data, [0, 0], [-1, output_maxlen])
+        out_logits_slice = tf.slice(self.outputs, [0, 0, 0], [-1, output_maxlen, -1])
+        out_pred_slice = tf.slice(self.output_ids, [0, 0], [-1, output_maxlen])
 
         with tf.name_scope("costs"):
             losses = tf.nn.sparse_softmax_cross_entropy_with_logits(
-                    logits=outputs_slice, labels=output_data_slice)
-            losses_mask = tf.sequence_mask(
+                    logits=out_logits_slice, labels=out_data_slice)
+
+            length_mask = tf.sequence_mask(
                     self.output_lengths, maxlen=output_maxlen, dtype=self._dtype)
-            losses = losses * losses_mask
-            # output_id = 41 => space : halve the cost of mis-output of space
-            space_mask = tf.cast(tf.equal(output_data_slice, 41), dtype=tf.float32)
-            losses = losses * (1.0 - 0.5*space_mask)
+            losses = losses * length_mask
+
+            # out_id = 41 => space : reduce the cost of mis-output of space by 40%
+            space_mask = tf.cast(tf.equal(out_data_slice, 41), dtype=tf.float32)
+            losses = losses * (1.0 - 0.4*space_mask)
+
+            # out_id = 2,3,4,5,6 : AA,AE,AH,AO,AW : reduce the cost by 20% for a-confusion
+            data_is_a = tf.logical_and(tf.greater_equal(out_data_slice, 2),
+                                       tf.less_equal(out_data_slice, 6))
+            pred_is_a = tf.logical_and(tf.greater_equal(out_pred_slice, 2),
+                                       tf.less_equal(out_pred_slice, 6))
+            a_mask = tf.cast(tf.logical_and(data_is_a, pred_is_a), dtype=tf.float32)
+            losses = losses * (1.0 - 0.2*a_mask)
 
             self.losses = tf.reduce_sum(losses, 1)
             tf.summary.scalar('losses', tf.reduce_sum(self.losses))
 
-            equality = tf.equal(self.output_ids, output_data_slice)
-            self.accuracy = tf.reduce_mean(tf.cast(equality, tf.float32))
+            inequality = tf.cast(tf.not_equal(self.output_ids, out_data_slice), dtype=tf.float32)
+            # reduce inequality inaccuracy by 20% for a-confusion
+            inequality = inequality * (1.0 - 0.1*a_mask)
+            self.accuracy = tf.reduce_mean(1.0 - inequality)
             tf.summary.scalar('accuracy', tf.reduce_sum(self.accuracy))
 
         self.train_step = tf.train.AdamOptimizer(learning_rate=1e-5, epsilon=1e-7).minimize(self.losses)
