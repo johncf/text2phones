@@ -12,13 +12,15 @@ output_max_length = 28
 checkpoint = "ckpts/model.ckpt"
 
 def main():
-    reader = data.Reader('.', data='data-mix',
+    reader = data.Reader('.', data='data-dict',
                               batch_size=batch_size,
                               in_maxlen=input_max_length,
                               out_maxlen=output_max_length)
 
     m = model.Model(input_size=reader.input_size, output_size=reader.output_size)
     m.train(batch_size)
+
+    summaries = tf.summary.merge_all()
 
     init = tf.global_variables_initializer()
 
@@ -28,6 +30,8 @@ def main():
     saver = tf.train.Saver()
 
     with tf.Session() as sess:
+        summary_writer = tf.summary.FileWriter('logdir/train', sess.graph)
+
         if len(glob(checkpoint + "*")) > 0:
             saver.restore(sess, checkpoint)
             print("Model restored!")
@@ -46,9 +50,10 @@ def main():
                      m.input_lengths: input_len,
                      m.output_data: output_ids,
                      m.output_lengths: output_len }
-            sess.run(m.train_step, feed_dict=feed)
+            summary_out, _ = sess.run([summaries, m.train_step], feed_dict=feed)
 
             if (i+1) % 50 == 0:
+                summary_writer.add_summary(summary_out)
                 train_accuracy = sess.run(m.accuracy, feed_dict=feed)
                 avg_accuracy += train_accuracy
                 count += 1
@@ -65,10 +70,6 @@ def main():
             if (i+1) % 500 == 0:
                 sys.stdout.flush()
 
-        writer = tf.summary.FileWriter('logdir', sess.graph)
-        summaries = tf.summary.merge_all()
-        summary_out = sess.run(summaries, feed_dict=feed)
-        writer.add_summary(summary_out)
-        writer.close()
+        summary_writer.close()
 
 main()
