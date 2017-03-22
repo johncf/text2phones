@@ -9,8 +9,9 @@ import sys
 batch_size = 56
 input_max_length = 24
 output_max_length = 20
-checkpoint = "ckpts/discntd-a-loss/model.ckpt"
-logdir = "logdir/train4_discntd_a-loss2"
+learning_rate = 8e-5
+checkpoint = "ckpts/more-layers5b/model.ckpt"
+logdir = "logdir/train15xb"
 
 def main():
     reader = data.Reader('.', data='data-mix2',
@@ -19,13 +20,13 @@ def main():
                               out_maxlen=output_max_length)
 
     m = model.Model(input_size=reader.input_size, output_size=reader.output_size)
-    m.train(batch_size)
+    m.train(batch_size, learning_rate, out_help=True, time_discount=False)
 
     summaries = tf.summary.merge_all()
 
     init = tf.global_variables_initializer()
 
-    avg_accuracy = 0.0
+    sum_accuracy = 0.0
     count = 0
 
     saver = tf.train.Saver()
@@ -56,13 +57,14 @@ def main():
             if (i+1) % 100 == 0:
                 summary_writer.add_summary(summary_out, (i+1)/50)
                 train_accuracy = sess.run(m.accuracy, feed_dict=feed)
-                avg_accuracy += train_accuracy
+                sum_accuracy += train_accuracy
                 count += 1
                 print("step {0}, training accuracy {1}".format(i+1, train_accuracy))
 
             if (i+1) % 2000 == 0:
-                print("Average accuracy:", avg_accuracy/count)
-                avg_accuracy = 0.0
+                avg_accuracy = sum_accuracy/count
+                print("Average accuracy:", avg_accuracy)
+                sum_accuracy = 0.0
                 count = 0
 
                 summary_writer.flush()

@@ -13,26 +13,20 @@ class Model():
                 output; default: 0)
             output_eos_id: index of output end-of-sequence id (default: 1)
             enc_rnn_size: number of units in the LSTM cell (default: 48)
-            dec_rnn_size: number of units in the LSTM cell (default: 56)
+            dec_rnn_size: number of units in the LSTM cell (default: 72)
         """
         self._input_size = kwargs['input_size']
         self._output_size = kwargs['output_size']
         self._output_sos_id = kwargs.get('output_sos_id', 0)
         self._output_eos_id = kwargs.get('output_eos_id', 1)
         self._enc_rnn_size = kwargs.get('enc_rnn_size', 48)
-        self._dec_rnn_size = kwargs.get('dec_rnn_size', 56)
+        self._dec_rnn_size = kwargs.get('dec_rnn_size', 72)
         self._dtype = dtype
 
     def _build_model(self, batch_size, helper_build_fn, decoder_maxiters=None):
         # embed input_data into a one-hot representation
         inputs = tf.one_hot(self.input_data, self._input_size, dtype=self._dtype)
         inputs_len = self.input_lengths
-        ## truncate inputs (debug dummy)
-        #trunc_len = 20
-        #inputs = tf.slice(inputs, [0,0,0], [-1, trunc_len, -1])
-        #inputs_len_x = tf.expand_dims(inputs_len, 1)
-        #inputs_len = tf.reduce_min(tf.concat([inputs_len_x, tf.zeros_like(inputs_len_x) + trunc_len], 1), 1)
-        ## end of truncate inputs
 
         with tf.name_scope('bidir-encoder'):
             fw_cell = rnn.BasicLSTMCell(self._enc_rnn_size, state_is_tuple=True)
@@ -46,13 +40,13 @@ class Model():
                                                          initial_state_bw=bw_cell_zero)
 
         with tf.name_scope('attn-decoder'):
+            dec_cell_in = rnn.BasicLSTMCell(self._dec_rnn_size, state_is_tuple=True)
             attn_values = tf.concat(enc_out, 2)
             attn_mech = seq2seq.LuongAttention(self._enc_rnn_size * 2, attn_values, inputs_len)
             dec_cell_attn = rnn.BasicLSTMCell(self._enc_rnn_size * 2, state_is_tuple=True)
             dec_cell_attn = seq2seq.DynamicAttentionWrapper(dec_cell_attn, attn_mech, self._enc_rnn_size * 2)
-            #dec_cell_mid = rnn.BasicLSTMCell(self._dec_rnn_size, state_is_tuple=True)
             dec_cell_out = rnn.BasicLSTMCell(self._output_size, state_is_tuple=True)
-            dec_cell = rnn.MultiRNNCell([dec_cell_attn, dec_cell_out],
+            dec_cell = rnn.MultiRNNCell([dec_cell_in, dec_cell_attn, dec_cell_out],
                                         state_is_tuple=True)
 
             dec = seq2seq.BasicDecoder(dec_cell, helper_build_fn(),
@@ -67,7 +61,7 @@ class Model():
     def _output_onehot(self, ids):
         return tf.one_hot(ids, self._output_size, dtype=self._dtype)
 
-    def train(self, batch_size):
+    def train(self, batch_size, learning_rate=1e-4, out_help=False, time_discount=True):
         """Build model for training.
         Args:
             batch_size: size of training batch
@@ -78,7 +72,6 @@ class Model():
         self.output_lengths = tf.placeholder(tf.int32, [batch_size], name='output_lengths')
 
         output_data_maxlen = tf.shape(self.output_data)[1]
-        #output_data_maxlen = 15 # dummy
 
         def infer_helper():
             return seq2seq.GreedyEmbeddingHelper(
@@ -92,7 +85,9 @@ class Model():
             decoder_inputs = self._output_onehot(decoder_input_ids)
             return seq2seq.TrainingHelper(decoder_inputs, self.output_lengths)
 
-        self._build_model(batch_size, infer_helper, decoder_maxiters=output_data_maxlen)
+        helper = train_helper if out_help else infer_helper
+
+        self._build_model(batch_size, helper, decoder_maxiters=output_data_maxlen)
 
         output_maxlen = tf.minimum(tf.shape(self.outputs)[1], output_data_maxlen)
         out_data_slice = tf.slice(self.output_data, [0, 0], [-1, output_maxlen])
@@ -119,6 +114,11 @@ class Model():
             a_mask = tf.cast(tf.logical_and(data_is_a, pred_is_a), dtype=tf.float32)
             losses = losses * (1.0 - 0.2*a_mask)
 
+            if time_discount:
+                # time discounts (only when using infer helper?)
+                factors = 1/tf.range(1, tf.to_float(output_maxlen + 1), dtype=tf.float32)
+                losses = losses * tf.expand_dims(factors, 0)
+
             self.losses = tf.reduce_sum(losses, 1)
             tf.summary.scalar('losses', tf.reduce_sum(self.losses))
 
@@ -128,7 +128,7 @@ class Model():
             self.accuracy = tf.reduce_mean(1.0 - inequality)
             tf.summary.scalar('accuracy', tf.reduce_sum(self.accuracy))
 
-        self.train_step = tf.train.AdamOptimizer(learning_rate=1e-5, epsilon=1e-7).minimize(self.losses)
+        self.train_step = tf.train.AdamOptimizer(learning_rate, epsilon=1e-3).minimize(self.losses)
 
     def infer(self, output_maxlen=128):
         """Build model for inference.
