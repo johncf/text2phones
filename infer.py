@@ -33,12 +33,18 @@ def main():
         #    print()
         #return
 
-        input_ = input('in> ')
-        input_ids = parser.parse_input(input_)
+        while True:
+            try:
+                input_ = input('in> ')
+            except EOFError:
+                print("\nBye!")
+                break
 
-        feed = { m.input_data: np.expand_dims(input_ids, 0) }
-        output_ids = sess.run(m.output_ids, feed_dict=feed)
+            input_ids = parser.parse_input(input_)
 
-        print(parser.compose_output(output_ids[0]))
+            feed = { m.input_data: np.expand_dims(input_ids, 0) }
+            output_ids = sess.run(m.output_ids, feed_dict=feed)
+
+            print(parser.compose_output(output_ids[0]))
 
 main()

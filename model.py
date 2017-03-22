@@ -12,14 +12,14 @@ class Model():
                 decoder at start; a reserved index that is never actually
                 output; default: 0)
             output_eos_id: index of output end-of-sequence id (default: 1)
-            enc_rnn_size: number of units in the LSTM cell (default: 48)
+            enc_rnn_size: number of units in the LSTM cell (default: 32)
             dec_rnn_size: number of units in the LSTM cell (default: 72)
         """
         self._input_size = kwargs['input_size']
         self._output_size = kwargs['output_size']
         self._output_sos_id = kwargs.get('output_sos_id', 0)
         self._output_eos_id = kwargs.get('output_eos_id', 1)
-        self._enc_rnn_size = kwargs.get('enc_rnn_size', 48)
+        self._enc_rnn_size = kwargs.get('enc_rnn_size', 32)
         self._dec_rnn_size = kwargs.get('dec_rnn_size', 72)
         self._dtype = dtype
 
@@ -29,8 +29,8 @@ class Model():
         inputs_len = self.input_lengths
 
         with tf.name_scope('bidir-encoder'):
-            fw_cell = rnn.BasicLSTMCell(self._enc_rnn_size, state_is_tuple=True)
-            bw_cell = rnn.BasicLSTMCell(self._enc_rnn_size, state_is_tuple=True)
+            fw_cell = rnn.MultiRNNCell([rnn.BasicRNNCell(self._enc_rnn_size) for i in range(3)], state_is_tuple=True)
+            bw_cell = rnn.MultiRNNCell([rnn.BasicRNNCell(self._enc_rnn_size) for i in range(3)], state_is_tuple=True)
             fw_cell_zero = fw_cell.zero_state(batch_size, self._dtype)
             bw_cell_zero = bw_cell.zero_state(batch_size, self._dtype)
 
@@ -40,12 +40,12 @@ class Model():
                                                          initial_state_bw=bw_cell_zero)
 
         with tf.name_scope('attn-decoder'):
-            dec_cell_in = rnn.BasicLSTMCell(self._dec_rnn_size, state_is_tuple=True)
+            dec_cell_in = rnn.GRUCell(self._dec_rnn_size)
             attn_values = tf.concat(enc_out, 2)
             attn_mech = seq2seq.LuongAttention(self._enc_rnn_size * 2, attn_values, inputs_len)
-            dec_cell_attn = rnn.BasicLSTMCell(self._enc_rnn_size * 2, state_is_tuple=True)
+            dec_cell_attn = rnn.GRUCell(self._enc_rnn_size * 2)
             dec_cell_attn = seq2seq.DynamicAttentionWrapper(dec_cell_attn, attn_mech, self._enc_rnn_size * 2)
-            dec_cell_out = rnn.BasicLSTMCell(self._output_size, state_is_tuple=True)
+            dec_cell_out = rnn.GRUCell(self._output_size)
             dec_cell = rnn.MultiRNNCell([dec_cell_in, dec_cell_attn, dec_cell_out],
                                         state_is_tuple=True)
 
@@ -146,9 +146,3 @@ class Model():
 
 # Also See
 #   https://groups.google.com/a/tensorflow.org/forum/#!topic/discuss/dw3Y2lnMAJc
-#            fw_cell1 = rnn.BasicLSTMCell(self._enc_rnn_size, state_is_tuple=True)
-#            fw_cell2 = rnn.BasicLSTMCell(self._enc_rnn_size, state_is_tuple=True)
-#            fw_cell = rnn.MultiRNNCell([fw_cell1, fw_cell2], state_is_tuple=True)
-#            bw_cell1 = rnn.BasicLSTMCell(self._enc_rnn_size, state_is_tuple=True)
-#            bw_cell2 = rnn.BasicLSTMCell(self._enc_rnn_size, state_is_tuple=True)
-#            bw_cell = rnn.MultiRNNCell([bw_cell1, bw_cell2], state_is_tuple=True)

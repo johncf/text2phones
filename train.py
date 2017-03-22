@@ -7,11 +7,12 @@ from glob import glob
 import sys
 
 batch_size = 56
-input_max_length = 24
-output_max_length = 20
-learning_rate = 8e-5
-checkpoint = "ckpts/more-layers5b/model.ckpt"
-logdir = "logdir/train15xb"
+input_max_length = 32
+output_max_length = 28
+learning_rate = 1e-4
+checkpoint = "ckpts/basic-gru/5/model.ckpt"
+logdir = "logdir/02-basic-gru/train5"
+start = 42000
 
 def main():
     reader = data.Reader('.', data='data-mix2',
@@ -20,7 +21,7 @@ def main():
                               out_maxlen=output_max_length)
 
     m = model.Model(input_size=reader.input_size, output_size=reader.output_size)
-    m.train(batch_size, learning_rate, out_help=True, time_discount=False)
+    m.train(batch_size, learning_rate, out_help=False, time_discount=False)
 
     summaries = tf.summary.merge_all()
 
@@ -41,7 +42,7 @@ def main():
             sess.run(init)
             print("Fresh variables!")
 
-        for i in range(1000000):
+        for i in range(start, 1000000):
             input_ids, input_len, output_ids, output_len = reader.next_batch()
 
             if input_ids is None:
