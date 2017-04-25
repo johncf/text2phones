@@ -7,21 +7,21 @@ from glob import glob
 import sys
 
 batch_size = 56
-input_max_length = 32
-output_max_length = 28
-learning_rate = 1e-4
-checkpoint = "ckpts/basic-gru/5/model.ckpt"
-logdir = "logdir/02-basic-gru/train5"
-start = 42000
+input_max_length = 28
+output_max_length = 24
+learning_rate = 4e-4
+checkpoint = "ckpts/model101.ckpt"
+logdir = "logdir/train101"
+start = 0
 
 def main():
-    reader = data.Reader('.', data='data-mix2',
+    reader = data.Reader('.', data='data-mix3',
                               batch_size=batch_size,
                               in_maxlen=input_max_length,
                               out_maxlen=output_max_length)
 
     m = model.Model(input_size=reader.input_size, output_size=reader.output_size)
-    m.train(batch_size, learning_rate, out_help=False, time_discount=False)
+    m.train(batch_size, learning_rate, out_help=False, time_discount=True, sampling_probability=0.2)
 
     summaries = tf.summary.merge_all()
 

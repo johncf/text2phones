@@ -6,7 +6,7 @@ import data
 import model
 from glob import glob
 
-checkpoint = "/tmp/model.ckpt"
+checkpoint = "ckpts/model101.ckpt"
 
 def main():
     parser = data.Parser('.')
@@ -25,14 +25,6 @@ def main():
             print("No model found!")
             return
 
-        ## -- debug --
-        #np.set_printoptions(threshold=np.inf)
-        #for v in tf.trainable_variables():
-        #    print(v.name)
-        #    print(sess.run(v))
-        #    print()
-        #return
-
         while True:
             try:
                 input_ = input('in> ')
@@ -43,8 +35,12 @@ def main():
             input_ids = parser.parse_input(input_)
 
             feed = { m.input_data: np.expand_dims(input_ids, 0) }
-            output_ids = sess.run(m.output_ids, feed_dict=feed)
+            output_ids, align_h = sess.run([
+                    m.output_ids,
+                    m.final_state[1].alignment_history.concat()
+                ], feed_dict=feed)
 
             print(parser.compose_output(output_ids[0]))
+            print(final_state)
 
 main()

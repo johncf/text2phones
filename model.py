@@ -23,7 +23,7 @@ class Model():
         self._dec_rnn_size = kwargs.get('dec_rnn_size', 72)
         self._dtype = dtype
 
-    def _build_model(self, batch_size, helper_build_fn, decoder_maxiters=None):
+    def _build_model(self, batch_size, helper_build_fn, decoder_maxiters=None, alignment_history=False):
         # embed input_data into a one-hot representation
         inputs = tf.one_hot(self.input_data, self._input_size, dtype=self._dtype)
         inputs_len = self.input_lengths
@@ -42,9 +42,12 @@ class Model():
         with tf.name_scope('attn-decoder'):
             dec_cell_in = rnn.GRUCell(self._dec_rnn_size)
             attn_values = tf.concat(enc_out, 2)
-            attn_mech = seq2seq.LuongAttention(self._enc_rnn_size * 2, attn_values, inputs_len)
+            attn_mech = seq2seq.BahdanauAttention(self._enc_rnn_size * 2, attn_values, inputs_len)
             dec_cell_attn = rnn.GRUCell(self._enc_rnn_size * 2)
-            dec_cell_attn = seq2seq.DynamicAttentionWrapper(dec_cell_attn, attn_mech, self._enc_rnn_size * 2)
+            dec_cell_attn = seq2seq.AttentionWrapper(dec_cell_attn,
+                                                     attn_mech,
+                                                     self._enc_rnn_size * 2,
+                                                     alignment_history=alignment_history)
             dec_cell_out = rnn.GRUCell(self._output_size)
             dec_cell = rnn.MultiRNNCell([dec_cell_in, dec_cell_attn, dec_cell_out],
                                         state_is_tuple=True)
@@ -52,16 +55,17 @@ class Model():
             dec = seq2seq.BasicDecoder(dec_cell, helper_build_fn(),
                                        dec_cell.zero_state(batch_size, self._dtype))
 
-            dec_out, _ = seq2seq.dynamic_decode(dec, output_time_major=False,
+            dec_out, dec_state = seq2seq.dynamic_decode(dec, output_time_major=False,
                     maximum_iterations=decoder_maxiters, impute_finished=True)
 
         self.outputs = dec_out.rnn_output
         self.output_ids = dec_out.sample_id
+        self.final_state = dec_state
 
     def _output_onehot(self, ids):
         return tf.one_hot(ids, self._output_size, dtype=self._dtype)
 
-    def train(self, batch_size, learning_rate=1e-4, out_help=False, time_discount=True):
+    def train(self, batch_size, learning_rate=1e-4, out_help=False, time_discount=True, sampling_probability=0.2):
         """Build model for training.
         Args:
             batch_size: size of training batch
@@ -83,7 +87,8 @@ class Model():
             start_ids = tf.fill([batch_size, 1], self._output_sos_id)
             decoder_input_ids = tf.concat([start_ids, self.output_data], 1)
             decoder_inputs = self._output_onehot(decoder_input_ids)
-            return seq2seq.TrainingHelper(decoder_inputs, self.output_lengths)
+            return seq2seq.ScheduledEmbeddingTrainingHelper(decoder_inputs, self.output_lengths,
+                    self._output_onehot, sampling_probability)
 
         helper = train_helper if out_help else infer_helper
 
@@ -116,7 +121,7 @@ class Model():
 
             if time_discount:
                 # time discounts (only when using infer helper?)
-                factors = 1/tf.range(1, tf.to_float(output_maxlen + 1), dtype=tf.float32)
+                factors = 1/tf.sqrt(tf.range(1, tf.to_float(output_maxlen + 1), dtype=tf.float32))
                 losses = losses * tf.expand_dims(factors, 0)
 
             self.losses = tf.reduce_sum(losses, 1)
@@ -142,7 +147,7 @@ class Model():
                     start_tokens=tf.fill([1], self._output_sos_id),
                     end_token=self._output_eos_id)
 
-        self._build_model(1, infer_helper, decoder_maxiters=output_maxlen)
+        self._build_model(1, infer_helper, decoder_maxiters=output_maxlen, alignment_history=True)
 
 # Also See
 #   https://groups.google.com/a/tensorflow.org/forum/#!topic/discuss/dw3Y2lnMAJc
