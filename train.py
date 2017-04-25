@@ -15,7 +15,7 @@ logdir = "logdir/train101"
 start = 0
 
 def main():
-    reader = data.Reader('.', data='data-mix3',
+    reader = data.Reader('.', data='data',
                               batch_size=batch_size,
                               in_maxlen=input_max_length,
                               out_maxlen=output_max_length)
