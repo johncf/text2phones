@@ -41,6 +41,7 @@ def main():
                 ], feed_dict=feed)
 
             print(parser.compose_output(output_ids[0]))
-            print(final_state)
+            print("\nBest alignment per output:")
+            print(np.argmax(align_h, axis=1))
 
 main()
