@@ -30,3 +30,5 @@ see the accuracy and loss values over time.
 
 Once the training is done to your satisfaction, run `./infer` and a prompt will
 await your input. Enter a line of text and be amazed at its inaccuracy!!
+
+Also see the companion presentation describing what I learned [at Google Docs](https://docs.google.com/presentation/d/1WhFAsk6Cx7p0iJyAuZIu_7CTgl74jWPxSpntYN3IIw0/edit?usp=sharing).
