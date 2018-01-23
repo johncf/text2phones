@@ -19,8 +19,8 @@ class Model():
         self._output_size = kwargs['output_size']
         self._output_sos_id = kwargs.get('output_sos_id', 0)
         self._output_eos_id = kwargs.get('output_eos_id', 1)
-        self._enc_rnn_size = kwargs.get('enc_rnn_size', 32)
-        self._dec_rnn_size = kwargs.get('dec_rnn_size', 72)
+        self._enc_rnn_size = kwargs.get('enc_rnn_size', 42)
+        self._dec_rnn_size = kwargs.get('dec_rnn_size', 96)
         self._dtype = dtype
 
     def _build_model(self, batch_size, helper_build_fn, decoder_maxiters=None, alignment_history=False):
@@ -29,8 +29,8 @@ class Model():
         inputs_len = self.input_lengths
 
         with tf.name_scope('bidir-encoder'):
-            fw_cell = rnn.MultiRNNCell([rnn.BasicRNNCell(self._enc_rnn_size) for i in range(3)], state_is_tuple=True)
-            bw_cell = rnn.MultiRNNCell([rnn.BasicRNNCell(self._enc_rnn_size) for i in range(3)], state_is_tuple=True)
+            fw_cell = rnn.MultiRNNCell([rnn.BasicRNNCell(self._enc_rnn_size) for i in range(2)], state_is_tuple=True)
+            bw_cell = rnn.MultiRNNCell([rnn.BasicRNNCell(self._enc_rnn_size) for i in range(2)], state_is_tuple=True)
             fw_cell_zero = fw_cell.zero_state(batch_size, self._dtype)
             bw_cell_zero = bw_cell.zero_state(batch_size, self._dtype)
 
@@ -41,8 +41,11 @@ class Model():
 
         with tf.name_scope('attn-decoder'):
             dec_cell_in = rnn.GRUCell(self._dec_rnn_size)
-            attn_values = tf.concat(enc_out, 2)
-            attn_mech = seq2seq.BahdanauAttention(self._enc_rnn_size * 2, attn_values, inputs_len)
+            memory = tf.concat(enc_out, 2)
+            attn_mech = seq2seq.LuongMonotonicAttention(self._enc_rnn_size * 2, memory,
+                                                        memory_sequence_length=inputs_len,
+                                                        sigmoid_noise=0.5, score_bias_init=-4.,
+                                                        mode='recursive', scale=True)
             dec_cell_attn = rnn.GRUCell(self._enc_rnn_size * 2)
             dec_cell_attn = seq2seq.AttentionWrapper(dec_cell_attn,
                                                      attn_mech,
@@ -55,7 +58,7 @@ class Model():
             dec = seq2seq.BasicDecoder(dec_cell, helper_build_fn(),
                                        dec_cell.zero_state(batch_size, self._dtype))
 
-            dec_out, dec_state = seq2seq.dynamic_decode(dec, output_time_major=False,
+            dec_out, dec_state, _ = seq2seq.dynamic_decode(dec, output_time_major=False,
                     maximum_iterations=decoder_maxiters, impute_finished=True)
 
         self.outputs = dec_out.rnn_output
@@ -65,7 +68,7 @@ class Model():
     def _output_onehot(self, ids):
         return tf.one_hot(ids, self._output_size, dtype=self._dtype)
 
-    def train(self, batch_size, learning_rate=1e-4, out_help=False, time_discount=True, sampling_probability=0.2):
+    def train(self, batch_size, learning_rate=1e-4, out_help=False, time_discount=0.4, sampling_probability=0.2):
         """Build model for training.
         Args:
             batch_size: size of training batch
@@ -119,9 +122,10 @@ class Model():
             a_mask = tf.cast(tf.logical_and(data_is_a, pred_is_a), dtype=tf.float32)
             losses = losses * (1.0 - 0.2*a_mask)
 
-            if time_discount:
+            if time_discount > 0:
                 # time discounts (only when using infer helper?)
-                factors = 1/tf.sqrt(tf.range(1, tf.to_float(output_maxlen + 1), dtype=tf.float32))
+                factors = tf.pow(tf.range(1, tf.to_float(output_maxlen + 1), dtype=tf.float32),
+                                 -time_discount)
                 losses = losses * tf.expand_dims(factors, 0)
 
             self.losses = tf.reduce_sum(losses, 1)
@@ -133,7 +137,11 @@ class Model():
             self.accuracy = tf.reduce_mean(1.0 - inequality)
             tf.summary.scalar('accuracy', tf.reduce_sum(self.accuracy))
 
-        self.train_step = tf.train.AdamOptimizer(learning_rate, epsilon=1e-3).minimize(self.losses)
+        self.global_step = tf.Variable(0, trainable=False)
+        decay_rate = tf.constant(0.94, dtype=tf.float64)
+        self.learning_rate = learning_rate * tf.pow(decay_rate, tf.floor(self.global_step/4000))
+        opt = tf.train.GradientDescentOptimizer(self.learning_rate)
+        self.train_step = opt.minimize(self.losses, global_step=self.global_step)
 
     def infer(self, output_maxlen=128):
         """Build model for inference.

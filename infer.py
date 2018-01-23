@@ -6,7 +6,7 @@ import data
 import model
 from glob import glob
 
-checkpoint = "ckpts/model101.ckpt"
+checkpoint = "ckpts/model.ckpt"
 
 def main():
     parser = data.Parser('.')
