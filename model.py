@@ -110,10 +110,6 @@ class Model():
                     self.output_lengths, maxlen=output_maxlen, dtype=self._dtype)
             losses = losses * length_mask
 
-            # out_id = 41 => space : reduce the cost of mis-output of space by 40%
-            space_mask = tf.cast(tf.equal(out_data_slice, 41), dtype=tf.float32)
-            losses = losses * (1.0 - 0.4*space_mask)
-
             # out_id = 2,3,4,5,6 : AA,AE,AH,AO,AW : reduce the cost by 20% for a-confusion
             data_is_a = tf.logical_and(tf.greater_equal(out_data_slice, 2),
                                        tf.less_equal(out_data_slice, 6))
