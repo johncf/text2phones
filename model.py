@@ -12,15 +12,15 @@ class Model():
                 decoder at start; a reserved index that is never actually
                 output; default: 0)
             output_eos_id: index of output end-of-sequence id (default: 1)
-            enc_rnn_size: number of units in the LSTM cell (default: 32)
-            dec_rnn_size: number of units in the LSTM cell (default: 72)
+            enc_size: number of units in the LSTM cell (default: 42)
+            dec_size: number of units in the LSTM cell (default: 96)
         """
         self._input_size = kwargs['input_size']
         self._output_size = kwargs['output_size']
         self._output_sos_id = kwargs.get('output_sos_id', 0)
         self._output_eos_id = kwargs.get('output_eos_id', 1)
-        self._enc_rnn_size = kwargs.get('enc_rnn_size', 42)
-        self._dec_rnn_size = kwargs.get('dec_rnn_size', 96)
+        self._enc_size = kwargs.get('enc_size', 42)
+        self._dec_size = kwargs.get('dec_size', 96)
         self._dtype = dtype
 
     def _build_model(self, batch_size, helper_build_fn, decoder_maxiters=None, alignment_history=False):
@@ -28,18 +28,24 @@ class Model():
         inputs = tf.one_hot(self.input_data, self._input_size, dtype=self._dtype)
         inputs_len = self.input_lengths
 
+        with tf.name_scope('conv-encoder'):
+            W = tf.Variable(tf.truncated_normal([3, self._input_size, self._enc_size], stddev=0.1), name="conv-weights")
+            b = tf.Variable(tf.truncated_normal([self._enc_size], stddev=0.1), name="conv-bias")
+            enc_out = tf.nn.elu(tf.nn.conv1d(inputs, W, stride=1, padding='SAME') + b)
+
         with tf.name_scope('attn-decoder'):
-            dec_cell_in1 = rnn.GRUCell(self._dec_rnn_size)
-            dec_cell_in2 = rnn.GRUCell(self._dec_rnn_size)
-            memory = inputs
-            attn_mech = seq2seq.LuongMonotonicAttention(self._enc_rnn_size * 2, memory,
+            dec_cell_in1 = rnn.GRUCell(self._dec_size)
+            dec_cell_in2 = rnn.GRUCell(self._dec_size)
+            memory = enc_out
+            attn_mech = seq2seq.LuongMonotonicAttention(self._enc_size, memory,
                                                         memory_sequence_length=inputs_len,
                                                         sigmoid_noise=0.5, score_bias_init=-4.,
                                                         mode='recursive', scale=True)
-            dec_cell_attn = rnn.GRUCell(self._enc_rnn_size * 2)
+            dec_cell_attn = rnn.MultiRNNCell([rnn.GRUCell(self._dec_size),
+                                              rnn.GRUCell(self._enc_size)], state_is_tuple=True)
             dec_cell_attn = seq2seq.AttentionWrapper(dec_cell_attn,
                                                      attn_mech,
-                                                     self._enc_rnn_size * 2,
+                                                     attention_layer_size=self._enc_size,
                                                      alignment_history=alignment_history)
             dec_cell_out = rnn.GRUCell(self._output_size)
             dec_cell = rnn.MultiRNNCell([dec_cell_in1, dec_cell_in2, dec_cell_attn, dec_cell_out],
@@ -124,7 +130,7 @@ class Model():
             self.accuracy = tf.reduce_mean(1.0 - inequality)
             tf.summary.scalar('accuracy', tf.reduce_sum(self.accuracy))
 
-        self.global_step = tf.Variable(0, trainable=False)
+        self.global_step = tf.Variable(0, trainable=False, name="global_step")
         decay_rate = tf.constant(0.8, dtype=tf.float64)
         self.learning_rate = learning_rate * tf.pow(decay_rate, tf.floor(self.global_step/4000))
         opt = tf.train.AdamOptimizer(self.learning_rate)
