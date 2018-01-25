@@ -28,20 +28,10 @@ class Model():
         inputs = tf.one_hot(self.input_data, self._input_size, dtype=self._dtype)
         inputs_len = self.input_lengths
 
-        with tf.name_scope('bidir-encoder'):
-            fw_cell = rnn.MultiRNNCell([rnn.BasicRNNCell(self._enc_rnn_size) for i in range(2)], state_is_tuple=True)
-            bw_cell = rnn.MultiRNNCell([rnn.BasicRNNCell(self._enc_rnn_size) for i in range(2)], state_is_tuple=True)
-            fw_cell_zero = fw_cell.zero_state(batch_size, self._dtype)
-            bw_cell_zero = bw_cell.zero_state(batch_size, self._dtype)
-
-            enc_out, _ = tf.nn.bidirectional_dynamic_rnn(fw_cell, bw_cell, inputs,
-                                                         sequence_length=inputs_len,
-                                                         initial_state_fw=fw_cell_zero,
-                                                         initial_state_bw=bw_cell_zero)
-
         with tf.name_scope('attn-decoder'):
-            dec_cell_in = rnn.GRUCell(self._dec_rnn_size)
-            memory = tf.concat(enc_out, 2)
+            dec_cell_in1 = rnn.GRUCell(self._dec_rnn_size)
+            dec_cell_in2 = rnn.GRUCell(self._dec_rnn_size)
+            memory = inputs
             attn_mech = seq2seq.LuongMonotonicAttention(self._enc_rnn_size * 2, memory,
                                                         memory_sequence_length=inputs_len,
                                                         sigmoid_noise=0.5, score_bias_init=-4.,
@@ -52,7 +42,7 @@ class Model():
                                                      self._enc_rnn_size * 2,
                                                      alignment_history=alignment_history)
             dec_cell_out = rnn.GRUCell(self._output_size)
-            dec_cell = rnn.MultiRNNCell([dec_cell_in, dec_cell_attn, dec_cell_out],
+            dec_cell = rnn.MultiRNNCell([dec_cell_in1, dec_cell_in2, dec_cell_attn, dec_cell_out],
                                         state_is_tuple=True)
 
             dec = seq2seq.BasicDecoder(dec_cell, helper_build_fn(),
@@ -124,8 +114,9 @@ class Model():
                                  -time_discount)
                 losses = losses * tf.expand_dims(factors, 0)
 
-            self.losses = tf.reduce_sum(losses, 1)
-            tf.summary.scalar('losses', tf.reduce_sum(self.losses))
+            losses = tf.reduce_sum(losses, 1)
+            self.losses = tf.reduce_sum(losses)
+            tf.summary.scalar('losses', self.losses)
 
             inequality = tf.cast(tf.not_equal(self.output_ids, out_data_slice), dtype=tf.float32)
             # reduce inequality inaccuracy by 20% for a-confusion
@@ -134,10 +125,10 @@ class Model():
             tf.summary.scalar('accuracy', tf.reduce_sum(self.accuracy))
 
         self.global_step = tf.Variable(0, trainable=False)
-        decay_rate = tf.constant(0.94, dtype=tf.float64)
+        decay_rate = tf.constant(0.8, dtype=tf.float64)
         self.learning_rate = learning_rate * tf.pow(decay_rate, tf.floor(self.global_step/4000))
-        opt = tf.train.GradientDescentOptimizer(self.learning_rate)
-        self.train_step = opt.minimize(self.losses, global_step=self.global_step)
+        opt = tf.train.AdamOptimizer(self.learning_rate)
+        self.train_step = opt.minimize(losses, global_step=self.global_step)
 
     def infer(self, output_maxlen=128):
         """Build model for inference.

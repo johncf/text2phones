@@ -37,7 +37,7 @@ def main():
             feed = { m.input_data: np.expand_dims(input_ids, 0) }
             output_ids, align_h = sess.run([
                     m.output_ids,
-                    m.final_state[1].alignment_history.concat()
+                    m.final_state[2].alignment_history.concat()
                 ], feed_dict=feed)
 
             print(parser.compose_output(output_ids[0]))

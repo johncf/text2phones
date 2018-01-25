@@ -5,11 +5,12 @@ import data
 import model
 from glob import glob
 import sys
+import time
 
 batch_size = 100
-input_max_length = 18
-output_max_length = 15
-learning_rate = 2e-3
+input_max_length = 20
+output_max_length = 16
+learning_rate = 8e-4
 checkpoint = "ckpts/model.ckpt"
 logdir = "logdir/train"
 start = 0
@@ -21,7 +22,7 @@ def main():
                               out_maxlen=output_max_length)
 
     m = model.Model(input_size=reader.input_size, output_size=reader.output_size)
-    m.train(batch_size, learning_rate, out_help=False, time_discount=0.1)
+    m.train(batch_size, learning_rate, out_help=False, time_discount=0.08)
 
     summaries = tf.summary.merge_all()
 
@@ -42,6 +43,7 @@ def main():
             sess.run(init)
             print("Fresh variables!")
 
+        prev_time = time.time()
         for i in range(start, 1000000):
             input_ids, input_len, output_ids, output_len = reader.next_batch()
 
@@ -57,10 +59,12 @@ def main():
 
             if gstep % 100 == 0:
                 summary_writer.add_summary(summary_out, gstep/50)
-                train_accuracy = sess.run(m.accuracy, feed_dict=feed)
-                sum_accuracy += train_accuracy
+                accuracy, loss = sess.run([m.accuracy, m.losses], feed_dict=feed)
+                sum_accuracy += accuracy
                 count += 1
-                print("step {0}, training accuracy {1:.6}, rate {2:.6}".format(gstep, train_accuracy, lrate))
+                cur_time = time.time()
+                print("step {0}, rate {1:.6}, accuracy {2:.6}, loss {3:.4}, time {4:.3}".format(gstep, lrate, accuracy, loss, cur_time - prev_time))
+                prev_time = cur_time
 
             if gstep % 2000 == 0:
                 avg_accuracy = sum_accuracy/count
@@ -71,9 +75,11 @@ def main():
                 summary_writer.flush()
                 save_path = saver.save(sess, checkpoint)
                 print("Model saved in file:", save_path)
+                prev_time = time.time()
 
             if gstep % 500 == 0:
                 sys.stdout.flush()
+                prev_time = time.time()
 
         summary_writer.close()
 
