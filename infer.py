@@ -9,7 +9,7 @@ from glob import glob
 checkpoint = "ckpts/model.ckpt"
 
 def main():
-    parser = data.Parser('.')
+    parser = data.Parser('./symbols')
 
     m = model.Model(input_size=parser.input_size, output_size=parser.output_size)
     m.infer()
@@ -41,7 +41,8 @@ def main():
                 ], feed_dict=feed)
 
             print(parser.compose_output(output_ids[0]))
-            print("\nBest alignment per output:")
+            print("\nAttention alignment:")
             print(np.argmax(align_h, axis=1))
+            print()
 
 main()

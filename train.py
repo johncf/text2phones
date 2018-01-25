@@ -7,6 +7,8 @@ from glob import glob
 import sys
 import time
 
+symbols_dir = './symbols'
+data_file = './data-sample'
 batch_size = 100
 input_max_length = 20
 output_max_length = 16
@@ -16,10 +18,10 @@ logdir = "logdir/train"
 start = 0
 
 def main():
-    reader = data.Reader('.', data='gist-data/data',
-                              batch_size=batch_size,
-                              in_maxlen=input_max_length,
-                              out_maxlen=output_max_length)
+    reader = data.Reader(symbols_dir, data_file,
+                         batch_size=batch_size,
+                         in_maxlen=input_max_length,
+                         out_maxlen=output_max_length)
 
     m = model.Model(input_size=reader.input_size, output_size=reader.output_size)
     m.train(batch_size, learning_rate, out_help=False, time_discount=0.08)

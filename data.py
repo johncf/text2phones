@@ -6,10 +6,10 @@ _sos = '<sos>'
 _eos = '<eos>'
 
 class Parser:
-    def __init__(self, root, in_syms='isymbols', out_syms='osymbols'):
-        with open(os.path.join(root, in_syms)) as isyms:
+    def __init__(self, symbols_dir):
+        with open(os.path.join(symbols_dir, 'input')) as isyms:
             self.in_syms = dict([(sym.strip(), i) for i, sym in enumerate(isyms)])
-        with open(os.path.join(root, out_syms)) as osyms:
+        with open(os.path.join(symbols_dir, 'output')) as osyms:
             self.out_syms = dict([(sym.strip(), i) for i, sym in enumerate(osyms)])
 
         self.out_syms_inv = {v: k for k, v in self.out_syms.items()}
@@ -36,12 +36,11 @@ class Parser:
 
 
 class Reader:
-    def __init__(self, root, data='data',
-            in_syms='isymbols', out_syms='osymbols',
-            in_maxlen=64, out_maxlen=64,
-            batch_size=100):
-        self.data_handle = open(os.path.join(root, data))
-        self.parser = Parser(root, in_syms=in_syms, out_syms=out_syms)
+    def __init__(self, symbols_dir, data_file,
+                 in_maxlen=64, out_maxlen=64,
+                 batch_size=100):
+        self.data_handle = open(data_file)
+        self.parser = Parser(symbols_dir)
         self.in_maxlen = in_maxlen
         self.out_maxlen = out_maxlen
         self.batch_size = batch_size
